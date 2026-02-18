@@ -1,0 +1,11 @@
+# Generated output
+*.pdf
+*.png
+*.svg
+
+# System files
+.DS_Store
+.vscode/
+
+# Typst
+typst-packages/

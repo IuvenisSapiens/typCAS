@@ -1,4 +1,4 @@
-# typCAS
+# typst-cas
 
 A lightweight Computer Algebra System (CAS) written in pure Typst.
 
@@ -18,8 +18,8 @@ typCAS provides a set of tools for symbolic mathematics directly within your Typ
 
 Import the library in your Typst document:
 
-```typst
-#import "path/to/typCAS/lib.typ": *
+// Use the local path or the package name if installed/published
+#import "@preview/typst-cas:0.1.0": *
 ```
 
 ### Parsing and Display
