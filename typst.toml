@@ -2,9 +2,9 @@
 name = "typcas"
 version = "0.1.0"
 entrypoint = "lib.typ"
-authors = ["Benjamin Lee <sihooleebd@gmail.com>"]
+authors = ["Benjamin Lee<sihooleebd@gmail.com>"]
 keywords = ["math", "cas", "algebra"]
-description = "A lightweight Computer Algebra System for Typst"
+description = "Compute algebraic expressions symbolically."
 license = "MIT"
 repository = "https://github.com/sihooleebd/typCAS"
 exclude = [

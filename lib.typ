@@ -2,7 +2,8 @@
 // typcas — Lightweight CAS (Computer Algebra System) in Typst
 // =========================================================================
 // Import this file to use the CAS in your Typst document:
-//   #import "@preview/typcas:0.0.1": *
+//   #import "@preview/typcas:0.1.0": *
+//   (view typst.toml for the correct version)
 //
 // All public functions accept raw Typst math content ($x^2 + 1$),
 // strings ("x^2 + 1"), or pre-built CAS expressions (add(pow(x,2), 1)).
