@@ -9,10 +9,18 @@ license = "MIT"
 repository = "https://github.com/sihooleebd/typCAS"
 exclude = [
   "test.typ",
+  "test_new.typ",
+  "cas_test_suite.typ",
+  "*test*.typ",
+  "*suite*.typ",
+  "**/*test*.typ",
+  "**/*suite*.typ",
   "*.pdf",
   "**/*.pdf",
   "examples",
   "examples/**",
+  "**/examples",
+  "**/examples/**",
   ".github",
   ".gitignore",
 ]
