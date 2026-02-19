@@ -1,12 +1,10 @@
 // =========================================================================
-// CAS Identities Compatibility Shim
+// CAS Bridge Layer: Identities
 // =========================================================================
-// Backward-compatible module path. Canonical identities data lives in:
-//   src/truths/identities.typ
-// Rewrite engine lives in:
-//   src/identity-engine.typ
+// Stable facade for identity truth data and rewrite engine entry points.
+// Consumers should import identity APIs from this file instead of
+// `src/identity-engine.typ` or `src/truths/identities.typ` directly.
 // =========================================================================
 
 #import "truths/identities.typ": identity-rules
 #import "identity-engine.typ": wild, apply-identities-once
-

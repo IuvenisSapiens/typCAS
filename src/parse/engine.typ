@@ -6,6 +6,7 @@
 // =========================================================================
 
 #import "../expr.typ": *
+#import "../truths/function-registry.typ": fn-known-names, fn-canonical, fn-spec, fn-arity-ok
 
 // =========================================================================
 // Phase 1: Tokenizer
@@ -120,54 +121,7 @@
 // =========================================================================
 
 /// Internal helper `_known-fns`.
-#let _known-fns = (
-  "sin",
-  "cos",
-  "tan",
-  "csc",
-  "sec",
-  "cot",
-  "arcsin",
-  "arccos",
-  "arctan",
-  "arccsc",
-  "arcsec",
-  "arccot",
-  "asin",
-  "acos",
-  "atan",
-  "acsc",
-  "asec",
-  "acot",
-  "sinh",
-  "cosh",
-  "tanh",
-  "csch",
-  "sech",
-  "coth",
-  "arcsinh",
-  "arccosh",
-  "arctanh",
-  "arccsch",
-  "arcsech",
-  "arccoth",
-  "asinh",
-  "acosh",
-  "atanh",
-  "acsch",
-  "asech",
-  "acoth",
-  "ln",
-  "log2",
-  "log10",
-  "exp",
-  "sqrt",
-  "abs",
-  "log",
-  "log",
-  "frac",
-  "root",
-)
+#let _known-fns = fn-known-names + ("sqrt", "log", "frac", "root")
 
 /// Internal helper `_pk`.
 #let _pk(tokens, pos) = if pos < tokens.len() { tokens.at(pos) } else { none }
@@ -208,7 +162,8 @@
     return pow(_bind-index-symbol(expr.base, idx), _bind-index-symbol(expr.exp, idx))
   }
   if is-type(expr, "func") {
-    return func(expr.name, _bind-index-symbol(expr.arg, idx))
+    let args = func-args(expr).map(a => _bind-index-symbol(a, idx))
+    return func(expr.name, ..args)
   }
   if is-type(expr, "log") {
     return log-of(_bind-index-symbol(expr.base, idx), _bind-index-symbol(expr.arg, idx))
@@ -234,6 +189,34 @@
 
 // All parser functions take `p` dict as last arg for mutual recursion.
 // p.expr, p.term, p.unary, p.power, p.atom
+
+/// Internal helper `_parse-call-args`.
+/// Parses comma-separated arguments after a function name.
+/// Expects `pos` to point at the opening `(` token.
+#let _parse-call-args(tokens, pos, p) = {
+  if _pk(tokens, pos) == none or _pk(tokens, pos).type != "lparen" { return (none, pos) }
+  let q = pos + 1
+  let args = ()
+  if _pk(tokens, q) != none and _pk(tokens, q).type == "rparen" {
+    return (args, q + 1)
+  }
+  while q < tokens.len() {
+    let (arg, q1) = (p.expr)(tokens, q, p)
+    args.push(arg)
+    q = q1
+    let t = _pk(tokens, q)
+    if t != none and t.type == "comma" {
+      q += 1
+      continue
+    }
+    if t != none and t.type == "rparen" {
+      q += 1
+      return (args, q)
+    }
+    return (none, q)
+  }
+  (none, q)
+}
 
 /// Internal helper `_parse-atom`.
 #let _parse-atom(tokens, pos, p) = {
@@ -341,10 +324,22 @@
 
     // Implicit unary function application with optional exponent:
     // sec^2 x -> (sec(x))^2, ln x -> ln(x)
-    if name in _known-fns and name != "frac" and name != "root" and not (next != none and next.type == "lparen") {
+    // Compatibility: log x => ln(x)
+    if name == "log" and not (next != none and next.type == "lparen") {
+      let q = pos + 1
+      let arg-tok = _pk(tokens, q)
+      if arg-tok != none and (arg-tok.type == "num" or arg-tok.type == "ident" or arg-tok.type == "lparen") {
+        let (arg, q2) = (p.power)(tokens, q, p)
+        return (func("ln", arg), q2)
+      }
+    }
+
+    let canonical = fn-canonical(name)
+    let spec = fn-spec(name)
+    if canonical != none and spec != none and spec.arity == 1 and spec.parse.allow-implicit and not (next != none and next.type == "lparen") {
       let q = pos + 1
       let fn-exp = none
-      if _is-op(tokens, q, "^") {
+      if spec.parse.allow-power-prefix and _is-op(tokens, q, "^") {
         let (exp, q1) = (p.unary)(tokens, q + 1, p)
         fn-exp = exp
         q = q1
@@ -352,17 +347,7 @@
       let arg-tok = _pk(tokens, q)
       if arg-tok != none and (arg-tok.type == "num" or arg-tok.type == "ident" or arg-tok.type == "lparen") {
         let (arg, q2) = (p.power)(tokens, q, p)
-        let base-fn = if name == "sqrt" {
-          pow(arg, cdiv(num(1), num(2)))
-        } else if name == "abs" {
-          abs-of(arg)
-        } else if name == "exp" {
-          exp-of(arg)
-        } else if name == "ln" or name == "log" {
-          ln-of(arg)
-        } else {
-          func(name, arg)
-        }
+        let base-fn = func(canonical, arg)
         if fn-exp != none {
           return (pow(base-fn, fn-exp), q2)
         }
@@ -392,11 +377,6 @@
         if q2 < tokens.len() and _pk(tokens, q2).type == "rparen" { q2 += 1 }
         return (pow(arg, cdiv(num(1), index)), q2)
       }
-      if name == "abs" {
-        let (arg, q) = (p.expr)(tokens, pos + 2, p)
-        if q < tokens.len() and _pk(tokens, q).type == "rparen" { q += 1 }
-        return (abs-of(arg), q)
-      }
       if name == "log" {
         let (first, q) = (p.expr)(tokens, pos + 2, p)
         if q < tokens.len() and _pk(tokens, q).type == "comma" {
@@ -408,15 +388,14 @@
         if q < tokens.len() and _pk(tokens, q).type == "rparen" { q += 1 }
         return (func("ln", first), q)
       }
-      if name == "exp" {
-        let (arg, q) = (p.expr)(tokens, pos + 2, p)
-        if q < tokens.len() and _pk(tokens, q).type == "rparen" { q += 1 }
-        return (exp-of(arg), q)
+
+      let canonical = fn-canonical(name)
+      let spec = fn-spec(name)
+      if canonical != none and spec != none {
+        let (args, q) = _parse-call-args(tokens, pos + 1, p)
+        if args == none or not fn-arity-ok(spec, args.len()) { return (num(0), pos) }
+        return (func(canonical, ..args), q)
       }
-      // Generic function
-      let (arg, q) = (p.expr)(tokens, pos + 2, p)
-      if q < tokens.len() and _pk(tokens, q).type == "rparen" { q += 1 }
-      return (func(name, arg), q)
     }
 
     // Constants

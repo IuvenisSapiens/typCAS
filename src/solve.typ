@@ -1,8 +1,9 @@
 // =========================================================================
-// CAS Solve Facade
+// CAS Bridge Layer: Solve
 // =========================================================================
-// Public solver APIs are re-exported from `src/solve/engine.typ`.
+// Stable facade for equation-solving entry points.
+// Consumers should import solver APIs from this file instead of
+// `src/solve/engine.typ` directly.
 // =========================================================================
 
 #import "solve/engine.typ": solve, solve-meta, factor
-

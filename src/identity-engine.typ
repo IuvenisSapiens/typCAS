@@ -30,10 +30,15 @@
   }
   if is-type(expr, "func") {
     // Keep ln of structured arguments "expensive" so ln identities remain active.
-    if expr.name == "ln" and (is-type(expr.arg, "mul") or is-type(expr.arg, "div") or is-type(expr.arg, "pow")) {
-      return 8 + _identity-complexity(expr.arg)
+    let args = func-args(expr)
+    if args.len() == 1 and expr.name == "ln" and (is-type(args.at(0), "mul") or is-type(args.at(0), "div") or is-type(args.at(0), "pow")) {
+      return 8 + _identity-complexity(args.at(0))
     }
-    return 3 + _identity-complexity(expr.arg)
+    let c = 3
+    for a in args {
+      c += _identity-complexity(a)
+    }
+    return c
   }
   if is-type(expr, "sum") or is-type(expr, "prod") {
     return 5 + _identity-complexity(expr.body) + _identity-complexity(expr.from) + _identity-complexity(expr.to)
@@ -115,7 +120,15 @@
 
   if is-type(pattern, "func") {
     if pattern.name != expr.name { return none }
-    return _match-pattern(pattern.arg, expr.arg, bindings)
+    let pa = func-args(pattern)
+    let ea = func-args(expr)
+    if pa.len() != ea.len() { return none }
+    let b = bindings
+    for i in range(pa.len()) {
+      b = _match-pattern(pa.at(i), ea.at(i), b)
+      if b == none { return none }
+    }
+    return b
   }
 
   if is-type(pattern, "log") {
@@ -187,7 +200,8 @@
     return cdiv(_instantiate-template(t.num, bindings), _instantiate-template(t.den, bindings))
   }
   if is-type(t, "func") {
-    return func(t.name, _instantiate-template(t.arg, bindings))
+    let args = func-args(t).map(a => _instantiate-template(a, bindings))
+    return func(t.name, ..args)
   }
   if is-type(t, "log") {
     return (type: "log", base: _instantiate-template(t.base, bindings), arg: _instantiate-template(t.arg, bindings))
@@ -262,7 +276,8 @@
   } else if is-type(cur, "div") {
     cur = cdiv(_rewrite-bottom-up(cur.num), _rewrite-bottom-up(cur.den))
   } else if is-type(cur, "func") {
-    cur = func(cur.name, _rewrite-bottom-up(cur.arg))
+    let args = func-args(cur).map(a => _rewrite-bottom-up(a))
+    cur = func(cur.name, ..args)
   } else if is-type(cur, "log") {
     cur = (
       type: "log",

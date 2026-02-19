@@ -126,14 +126,37 @@ Matrices:
 ## Project Layout
 
 - `lib.typ`: public facade.
-- `src/truths/`: declarative rule tables (`calculus-rules`, `identities`).
+- `src/truths/`: declarative rule tables (`function-registry`, `calculus-rules` shim, `identities`).
 - `src/core/`: shared walkers and integer helpers.
 - `src/calculus/`: `diff`, `integrate`, advanced calculus ops.
 - `src/solve/`: solver engine.
 - `src/parse/`: parser engine.
 - `src/steps/`: step model, renderer, trace engine.
 
-Top-level `src/*.typ` files for `calculus`, `solve`, `parse`, and `steps` are facades over these modular engines.
+Top-level `src/*.typ` files for `calculus`, `solve`, `parse`, `steps`, and `identities` are stable facades over these modular engines.
+
+## Adding a Function (Truths-Only)
+
+To add a new named function, edit only `src/truths/function-registry.typ`.
+
+Required checklist for a new registry entry:
+
+1. `name`, `aliases`, and `arity`.
+2. `parse` flags:
+   - `allow-implicit`
+   - `allow-power-prefix`
+3. `display.render` closure.
+4. `eval` closure with domain guards (return `none` for invalid real-domain inputs).
+5. `calculus` block:
+   - unary functions: provide `diff`, optional `integ`, `diff-step`, optional `domain-note`
+   - non-unary functions: set calculus fields to `none` (unary calculus only in current engine)
+
+Notes:
+
+- Parser, display, and numeric eval auto-discover functions from the registry.
+- `src/truths/calculus-rules.typ` is a compatibility shim derived from the registry.
+- Algebraic identities remain separate: add optional simplification identities in `src/truths/identities.typ`.
+- Structural operators/functions (`log(base,arg)`, `sqrt`, `root`, `frac`) still have dedicated parser/eval handling.
 
 ## Notes
 

@@ -202,7 +202,7 @@
   }
 
   // sin(x)
-  if is-type(expr, "func") and is-type(expr.arg, "var") and expr.arg.name == var { return true }
+  if is-type(expr, "func") and func-arity(expr) == 1 and is-type(func-args(expr).at(0), "var") and func-args(expr).at(0).name == var { return true }
 
   false
 }
@@ -655,7 +655,10 @@
 
   // Functions (Chain Rule) — table-driven
   if is-type(expr, "func") {
-    let u = expr.arg
+    if func-arity(expr) != 1 {
+      return (diff(expr, var), (_s-note("Function arity not supported by step tracer", expr: expr),), used_vars)
+    }
+    let u = func-args(expr).at(0)
 
     let is-chain = not (is-type(u, "var") and u.name == var)
     let (du, steps-u, uv1) = if is-chain { _trace-diff(u, var, depth + 1, used_vars) } else { (num(1), (), used_vars) }
@@ -910,7 +913,10 @@
   if is-type(expr, "pow") and is-type(expr.exp, "num") and expr.exp.val == 2 and is-type(expr.base, "func") {
     let fname = expr.base.name
     if fname == "sec" or fname == "csc" or fname == "sech" or fname == "csch" {
-      let u = expr.base.arg
+      if func-arity(expr.base) != 1 {
+        return (integrate(expr, var), (_s-note("Function arity not supported by step tracer", expr: expr),), used_vars)
+      }
+      let u = func-args(expr.base).at(0)
       let du = simplify(diff(u, var))
       if not _contains-var(du, var) and not expr-eq(du, num(0)) {
         let antideriv = if fname == "sec" {
@@ -977,7 +983,10 @@
   // --- Functions: table-driven with u-sub ---
   if is-type(expr, "func") {
     let fname = expr.name
-    let u = expr.arg
+    if func-arity(expr) != 1 {
+      return (integrate(expr, var), (_s-note("Function arity not supported by step tracer", expr: expr),), used_vars)
+    }
+    let u = func-args(expr).at(0)
     let rule = calc-rules.at(fname, default: none)
     if rule != none and rule.integ != none {
       let du = simplify(diff(u, var))
@@ -1233,7 +1242,31 @@
 
   // --- Function ---
   if is-type(expr, "func") {
-    let (sa, asteps, uv1) = _trace-simplify(expr.arg, depth + 1, used_vars)
+    let args = func-args(expr)
+    if args.len() != 1 {
+      let sargs = ()
+      let all = ()
+      let current_uv = used_vars
+      let changed = false
+      for (i, a) in args.enumerate() {
+        let (sa, asteps, uv1) = _trace-simplify(a, depth + 1, current_uv)
+        current_uv = uv1
+        sargs.push(sa)
+        if not expr-eq(sa, a) { changed = true }
+        if asteps.len() > 0 { all += asteps }
+      }
+      let after-sub = func(expr.name, ..sargs)
+      let final = simplify(after-sub)
+      let steps = ()
+      if all.len() > 0 {
+        steps += all
+      }
+      if changed or not expr-eq(final, after-sub) {
+        steps.push(_s-header(final, "Function identity"))
+      }
+      return (final, steps, current_uv)
+    }
+    let (sa, asteps, uv1) = _trace-simplify(args.at(0), depth + 1, used_vars)
     current_uv = uv1
     let after-sub = func(expr.name, sa)
     let final = simplify(after-sub)

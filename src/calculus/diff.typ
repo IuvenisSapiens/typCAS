@@ -97,7 +97,10 @@
   // Chain rule for named functions — table-driven
   if is-type(expr, "func") {
     let fname = expr.name
-    let u = expr.arg
+    if func-arity(expr) != 1 {
+      return func("D[" + fname + "]", expr)
+    }
+    let u = func-args(expr).at(0)
     let du = diff(u, v)
     let rule = calc-rules.at(fname, default: none)
     if rule != none {

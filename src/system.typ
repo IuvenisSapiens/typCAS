@@ -19,7 +19,12 @@
   }
   if is-type(expr, "pow") { return _contains-var(expr.base, v) or _contains-var(expr.exp, v) }
   if is-type(expr, "div") { return _contains-var(expr.num, v) or _contains-var(expr.den, v) }
-  if is-type(expr, "func") { return _contains-var(expr.arg, v) }
+  if is-type(expr, "func") {
+    for a in func-args(expr) {
+      if _contains-var(a, v) { return true }
+    }
+    return false
+  }
   if is-type(expr, "log") { return _contains-var(expr.base, v) or _contains-var(expr.arg, v) }
   false
 }

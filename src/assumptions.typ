@@ -109,9 +109,11 @@
   }
 
   if is-type(expr, "func") {
-    let arg = _apply(expr.arg, assumptions)
+    let args = func-args(expr).map(a => _apply(a, assumptions))
+    let unary = args.len() == 1
 
-    if expr.name == "abs" {
+    if unary and expr.name == "abs" {
+      let arg = args.at(0)
       if _is-positive-var(arg, assumptions) {
         return arg
       }
@@ -120,7 +122,7 @@
       }
     }
 
-    return func(expr.name, arg)
+    return func(expr.name, ..args)
   }
 
   if is-type(expr, "log") {

@@ -3,6 +3,7 @@
 // =========================================================================
 
 #import "expr.typ": *
+#import "truths/function-registry.typ": fn-spec, fn-arity-ok
 
 // --- Operator precedence for parenthesization ---
 /// Internal helper `_prec`.
@@ -44,6 +45,20 @@
     return mul(pos-coeff, expr.args.at(1))
   }
   return expr
+}
+
+/// Internal helper `_join-args`.
+/// Joins rendered argument content as `a, b, c`.
+#let _join-args(args) = {
+  if args.len() == 0 { return [] }
+  if args.len() == 1 { return args.at(0) }
+  let out = args.at(0)
+  let i = 1
+  while i < args.len() {
+    out = $#out, #args.at(i)$
+    i += 1
+  }
+  out
 }
 
 // Flatten nested multiplication into factors (for display rewrites only).
@@ -217,65 +232,21 @@
 
   // Named function
   if is-type(expr, "func") {
-    let arg = cas-display(expr.arg)
     let fname = expr.name
+    let args = func-args(expr).map(cas-display)
 
-    // Basic trig
-    if fname == "sin" { return $sin(#arg)$ }
-    if fname == "cos" { return $cos(#arg)$ }
-    if fname == "tan" { return $tan(#arg)$ }
-    if fname == "csc" { return $csc(#arg)$ }
-    if fname == "sec" { return $sec(#arg)$ }
-    if fname == "cot" { return $cot(#arg)$ }
-
-    // Inverse trig
-    if fname == "arcsin" { return $arcsin(#arg)$ }
-    if fname == "arccos" { return $arccos(#arg)$ }
-    if fname == "arctan" { return $arctan(#arg)$ }
-    if fname == "arccsc" { return $op("arccsc") lr((#arg))$ }
-    if fname == "arcsec" { return $op("arcsec") lr((#arg))$ }
-    if fname == "arccot" { return $op("arccot") lr((#arg))$ }
-    if fname == "asin" { return $arcsin(#arg)$ }
-    if fname == "acos" { return $arccos(#arg)$ }
-    if fname == "atan" { return $arctan(#arg)$ }
-    if fname == "acsc" { return $op("arccsc") lr((#arg))$ }
-    if fname == "asec" { return $op("arcsec") lr((#arg))$ }
-    if fname == "acot" { return $op("arccot") lr((#arg))$ }
-
-    // Hyperbolic
-    if fname == "sinh" { return $sinh(#arg)$ }
-    if fname == "cosh" { return $cosh(#arg)$ }
-    if fname == "tanh" { return $tanh(#arg)$ }
-    if fname == "csch" { return $op("csch") lr((#arg))$ }
-    if fname == "sech" { return $op("sech") lr((#arg))$ }
-    if fname == "coth" { return $op("coth") lr((#arg))$ }
-
-    // Inverse hyperbolic
-    if fname == "arcsinh" { return $op("arcsinh") lr((#arg))$ }
-    if fname == "arccosh" { return $op("arccosh") lr((#arg))$ }
-    if fname == "arctanh" { return $op("arctanh") lr((#arg))$ }
-    if fname == "arccsch" { return $op("arccsch") lr((#arg))$ }
-    if fname == "arcsech" { return $op("arcsech") lr((#arg))$ }
-    if fname == "arccoth" { return $op("arccoth") lr((#arg))$ }
-    if fname == "asinh" { return $op("arcsinh") lr((#arg))$ }
-    if fname == "acosh" { return $op("arccosh") lr((#arg))$ }
-    if fname == "atanh" { return $op("arctanh") lr((#arg))$ }
-    if fname == "acsch" { return $op("arccsch") lr((#arg))$ }
-    if fname == "asech" { return $op("arcsech") lr((#arg))$ }
-    if fname == "acoth" { return $op("arccoth") lr((#arg))$ }
-
-    // Other
-    if fname == "ln" { return $ln(#arg)$ }
-    if fname == "log2" { return $log_(2) lr((#arg))$ }
-    if fname == "log10" { return $log_(10) lr((#arg))$ }
-    if fname == "exp" { return $e^(#arg)$ }
-    if fname == "abs" { return $lr(|#arg|)$ }
     if fname.starts-with("diff_") {
       let v = fname.slice(5)
+      let arg = if args.len() > 0 { args.at(0) } else { $?$ }
       return $d/(d #math.italic(v)) (#arg)$
     }
 
-    return $op(#fname) lr((#arg))$
+    let spec = fn-spec(fname)
+    if spec != none and spec.display != none and spec.display.render != none and fn-arity-ok(spec, args.len()) {
+      return (spec.display.render)(args)
+    }
+
+    return $op(#fname) lr((#_join-args(args)))$
   }
 
   // Integral node (unsolved integral)

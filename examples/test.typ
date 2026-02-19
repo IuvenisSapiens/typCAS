@@ -601,6 +601,14 @@ $ #cas-display(cmat(((1, 2), (3, 4)))) #h(2em) #cas-display(mat-id(3)) $
   ]
 }
 
+#{
+  let expr = p("hypot2(3, 4)")
+  let result = eval-expr(expr, (:))
+  block(below: 0.6em)[
+    *Registry multi-arg function:* $ #cas-display(expr) = #result $
+  ]
+}
+
 === Summation Evaluation
 #{
   // Σ_{k=1}^{10} k² = 385

@@ -17,7 +17,12 @@
   }
   if is-type(expr, "div") { return contains-var(expr.num, v) or contains-var(expr.den, v) }
   if is-type(expr, "pow") { return contains-var(expr.base, v) or contains-var(expr.exp, v) }
-  if is-type(expr, "func") { return contains-var(expr.arg, v) }
+  if is-type(expr, "func") {
+    for a in func-args(expr) {
+      if contains-var(a, v) { return true }
+    }
+    return false
+  }
   if is-type(expr, "log") { return contains-var(expr.base, v) or contains-var(expr.arg, v) }
   if is-type(expr, "sum") or is-type(expr, "prod") {
     return contains-var(expr.body, v) or contains-var(expr.from, v) or contains-var(expr.to, v)
@@ -51,7 +56,12 @@
   }
   if is-type(expr, "div") { return contains-const(expr.num, name) or contains-const(expr.den, name) }
   if is-type(expr, "pow") { return contains-const(expr.base, name) or contains-const(expr.exp, name) }
-  if is-type(expr, "func") { return contains-const(expr.arg, name) }
+  if is-type(expr, "func") {
+    for a in func-args(expr) {
+      if contains-const(a, name) { return true }
+    }
+    return false
+  }
   if is-type(expr, "log") { return contains-const(expr.base, name) or contains-const(expr.arg, name) }
   if is-type(expr, "sum") or is-type(expr, "prod") {
     return contains-const(expr.body, name) or contains-const(expr.from, name) or contains-const(expr.to, name)
@@ -88,7 +98,11 @@
     return 3 + expr-complexity(expr.base) + expr-complexity(expr.exp)
   }
   if is-type(expr, "func") {
-    return 3 + expr-complexity(expr.arg)
+    let c = 3
+    for a in func-args(expr) {
+      c += expr-complexity(a)
+    }
+    return c
   }
   if is-type(expr, "log") {
     return 4 + expr-complexity(expr.base) + expr-complexity(expr.arg)

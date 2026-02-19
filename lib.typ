@@ -67,12 +67,24 @@
 
 #import "src/simplify.typ" as _sim
 #import "src/eval-num.typ" as _eval
-#import "src/calculus.typ" as _calc
-#import "src/solve.typ" as _solve
+#import "src/calculus.typ": diff as _diff_core
+#import "src/calculus.typ": integrate as _integrate_core
+#import "src/calculus.typ": diff-n as _diff_n_core
+#import "src/calculus.typ": definite-integral as _def_integral_core
+#import "src/calculus.typ": taylor as _taylor_core
+#import "src/calculus.typ": limit as _limit_core
+#import "src/calculus.typ": implicit-diff as _implicit_diff_core
+#import "src/solve.typ": solve as _solve_core
+#import "src/solve.typ": solve-meta as _solve_meta_core
+#import "src/solve.typ": factor as _factor_core
 #import "src/matrix.typ" as _mat
 #import "src/poly.typ" as _poly
 #import "src/system.typ" as _sys
-#import "src/steps.typ" as _steps
+#import "src/steps.typ": step-diff as _step_diff_core
+#import "src/steps.typ": step-integrate as _step_integrate_core
+#import "src/steps.typ": step-simplify as _step_simplify_core
+#import "src/steps.typ": step-solve as _step_solve_core
+#import "src/steps.typ": display-steps as _display_steps_core
 #import "src/assumptions.typ" as _assume
 #import "src/helpers.typ": check-free-var as _check-free-var, check-free-vars as _check-free-vars
 
@@ -170,7 +182,7 @@
   } else {
     src
   }
-  let out = _calc.diff(src, var)
+  let out = _diff_core(src, var)
   if assumptions != none {
     return _sim.simplify(_assume.apply-assumptions(out, assumptions))
   }
@@ -196,7 +208,7 @@
   } else {
     src
   }
-  let out = _calc.diff-n(src, var, n)
+  let out = _diff_n_core(src, var, n)
   if assumptions != none {
     return _sim.simplify(_assume.apply-assumptions(out, assumptions))
   }
@@ -223,7 +235,7 @@
   } else {
     src
   }
-  let result = _calc.integrate(src, var)
+  let result = _integrate_core(src, var)
   let result = if assumptions != none {
     _sim.simplify(_assume.apply-assumptions(result, assumptions))
   } else {
@@ -251,7 +263,7 @@
 ///
 #let definite-integral(expr, var, a, b, assumptions: none) = {
   _check-free-var(var)
-  let out = _calc.definite-integral(cas-parse(expr), var, cas-parse(a), cas-parse(b))
+  let out = _def_integral_core(cas-parse(expr), var, cas-parse(a), cas-parse(b))
   if assumptions != none {
     return _sim.simplify(_assume.apply-assumptions(out, assumptions))
   }
@@ -272,7 +284,7 @@
 ///
 #let taylor(expr, var, x0, n, assumptions: none) = {
   _check-free-var(var)
-  let out = _calc.taylor(cas-parse(expr), var, cas-parse(x0), n)
+  let out = _taylor_core(cas-parse(expr), var, cas-parse(x0), n)
   if assumptions != none {
     return _sim.simplify(_assume.apply-assumptions(out, assumptions))
   }
@@ -291,7 +303,7 @@
 ///
 #let limit(expr, var, to) = {
   _check-free-var(var)
-  _calc.limit(cas-parse(expr), var, cas-parse(to))
+  _limit_core(cas-parse(expr), var, cas-parse(to))
 }
 
 /// Implicit differentiation: given F(x, y) = 0, compute dy/dx = −Fₓ/F_y.
@@ -306,7 +318,7 @@
 ///
 #let implicit-diff(expr, x, y) = {
   _check-free-vars(x, y)
-  _calc.implicit-diff(cas-parse(expr), x, y)
+  _implicit_diff_core(cas-parse(expr), x, y)
 }
 
 // =========================================================================
@@ -328,7 +340,7 @@
 ///
 #let solve(lhs, rhs, var, assumptions: none) = {
   _check-free-var(var)
-  let sols = _solve.solve(cas-parse(lhs), cas-parse(rhs), var)
+  let sols = _solve_core(cas-parse(lhs), cas-parse(rhs), var)
   if assumptions == none { return sols }
   sols.map(s => _sim.simplify(_assume.apply-assumptions(s, assumptions)))
 }
@@ -348,7 +360,7 @@
 ///
 #let solve-meta(lhs, rhs, var, assumptions: none) = {
   _check-free-var(var)
-  let meta = _solve.solve-meta(cas-parse(lhs), cas-parse(rhs), var)
+  let meta = _solve_meta_core(cas-parse(lhs), cas-parse(rhs), var)
   if assumptions == none or meta == none or meta.roots == none { return meta }
   let roots = meta.roots.map(r => (..r, expr: _sim.simplify(_assume.apply-assumptions(r.expr, assumptions))))
   (..meta, roots: roots)
@@ -365,7 +377,7 @@
 ///
 #let factor(expr, var) = {
   _check-free-var(var)
-  _solve.factor(cas-parse(expr), var)
+  _factor_core(cas-parse(expr), var)
 }
 
 /// Build one assumptions block for a variable.
@@ -554,7 +566,7 @@
 /// let steps = step-simplify($0 dot x + 5$)
 /// display-steps($0 dot x + 5$, steps)
 ///
-#let step-simplify(expr, depth: 1) = _steps.step-simplify(cas-parse(expr))
+#let step-simplify(expr, depth: 1) = _step_simplify_core(cas-parse(expr))
 
 /// Step-by-step differentiation showing each rule applied
 /// (power rule, chain rule, product rule, quotient rule, etc.).
@@ -570,7 +582,7 @@
 ///
 #let step-diff(expr, var, depth: 1) = {
   _check-free-var(var)
-  _steps.step-diff(cas-parse(expr), var)
+  _step_diff_core(cas-parse(expr), var)
 }
 
 /// Step-by-step integration showing each rule applied.
@@ -586,7 +598,7 @@
 ///
 #let step-integrate(expr, var, depth: 1) = {
   _check-free-var(var)
-  _steps.step-integrate(cas-parse(expr), var)
+  _step_integrate_core(cas-parse(expr), var)
 }
 
 /// Step-by-step equation solving showing each transformation.
@@ -603,7 +615,7 @@
 ///
 #let step-solve(lhs, rhs, var, depth: 1) = {
   _check-free-var(var)
-  _steps.step-solve(cas-parse(lhs), cas-parse(rhs), var)
+  _step_solve_core(cas-parse(lhs), cas-parse(rhs), var)
 }
 
 /// Render step-by-step output as formatted Typst content.
@@ -617,7 +629,7 @@
 #let display-steps(original, steps, operation: none, var: none, rhs: none) = {
   if var != none { _check-free-var(var) }
   let rhs-parsed = if rhs != none { cas-parse(rhs) } else { none }
-  _steps.display-steps(cas-parse(original), steps, operation: operation, var: var, rhs: rhs-parsed)
+  _display_steps_core(cas-parse(original), steps, operation: operation, var: var, rhs: rhs-parsed)
 }
 
 // =========================================================================

@@ -1,8 +1,9 @@
 // =========================================================================
-// CAS Parse Facade
+// CAS Bridge Layer: Parse
 // =========================================================================
-// Public parse API is re-exported from `src/parse/engine.typ`.
+// Stable facade for parser entry points.
+// Consumers should import parse APIs from this file instead of
+// `src/parse/engine.typ` directly.
 // =========================================================================
 
 #import "parse/engine.typ": cas-parse
-

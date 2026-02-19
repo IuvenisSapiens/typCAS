@@ -35,7 +35,7 @@
   if is-type(expr, "pow") and is-type(expr.base, "var") and expr.base.name == v and is-type(expr.exp, "num") {
     return type(expr.exp.val) == int and expr.exp.val >= 1
   }
-  if is-type(expr, "func") and expr.name == "ln" and is-type(expr.arg, "var") and expr.arg.name == v {
+  if is-type(expr, "func") and expr.name == "ln" and func-arity(expr) == 1 and is-type(func-args(expr).at(0), "var") and func-args(expr).at(0).name == v {
     return true
   }
   false
@@ -62,7 +62,8 @@
     return pow(_drop-power-one(expr.base), _drop-power-one(expr.exp))
   }
   if is-type(expr, "func") {
-    return func(expr.name, _drop-power-one(expr.arg))
+    let args = func-args(expr).map(_drop-power-one)
+    return func(expr.name, ..args)
   }
   if is-type(expr, "log") {
     return (type: "log", base: _drop-power-one(expr.base), arg: _drop-power-one(expr.arg))
@@ -82,7 +83,8 @@
     if is-type(other, "func") {
       let rule = calc-rules.at(other.name, default: none)
       if rule != none and rule.integ != none {
-        let u = other.arg
+        if func-arity(other) != 1 { continue }
+        let u = func-args(other).at(0)
         let dpart-n = simplify(_drop-power-one(dpart))
         let du = simplify(_drop-power-one(diff(u, v)))
         if _contains-var(du, v) {
@@ -226,22 +228,24 @@
     // ∫csch(u)^2 dx = -coth(u)/u'
     if is-type(exp, "num") and exp.val == 2 and is-type(base, "func") {
       if base.name == "sec" or base.name == "csc" or base.name == "sech" or base.name == "csch" {
-        let inner = base.arg
-        let du = simplify(diff(inner, v))
-        if not _contains-var(du, v) and not expr-eq(du, num(0)) {
-          let antideriv = if base.name == "sec" {
-            tan-of(inner)
-          } else if base.name == "csc" {
-            neg(cot-of(inner))
-          } else if base.name == "sech" {
-            tanh-of(inner)
-          } else {
-            neg(coth-of(inner))
+        if func-arity(base) == 1 {
+          let inner = func-args(base).at(0)
+          let du = simplify(diff(inner, v))
+          if not _contains-var(du, v) and not expr-eq(du, num(0)) {
+            let antideriv = if base.name == "sec" {
+              tan-of(inner)
+            } else if base.name == "csc" {
+              neg(cot-of(inner))
+            } else if base.name == "sech" {
+              tanh-of(inner)
+            } else {
+              neg(coth-of(inner))
+            }
+            if is-type(du, "num") and du.val == 1 {
+              return antideriv
+            }
+            return cdiv(antideriv, du)
           }
-          if is-type(du, "num") and du.val == 1 {
-            return antideriv
-          }
-          return cdiv(antideriv, du)
         }
       }
     }
@@ -276,7 +280,8 @@
   // Table-driven ∫f(u(x)) dx where u' is constant.
   if is-type(expr, "func") {
     let fname = expr.name
-    let u = expr.arg
+    if func-arity(expr) != 1 { return (type: "integral", expr: expr, var: v) }
+    let u = func-args(expr).at(0)
     let rule = calc-rules.at(fname, default: none)
     if rule != none and rule.integ != none {
       let du = simplify(diff(u, v))
@@ -296,13 +301,15 @@
     let d = expr.den
     if is-type(n, "num") and n.val == 1 and is-type(d, "pow") {
       if is-type(d.base, "func") and d.base.name == "cos" and is-type(d.exp, "num") and d.exp.val == 2 {
-        let inner = d.base.arg
-        let du = simplify(diff(inner, v))
-        if not _contains-var(du, v) {
-          if is-type(du, "num") and du.val == 1 {
-            return tan-of(inner)
+        if func-arity(d.base) == 1 {
+          let inner = func-args(d.base).at(0)
+          let du = simplify(diff(inner, v))
+          if not _contains-var(du, v) {
+            if is-type(du, "num") and du.val == 1 {
+              return tan-of(inner)
+            }
+            return cdiv(tan-of(inner), du)
           }
-          return cdiv(tan-of(inner), du)
         }
       }
     }

@@ -6,7 +6,7 @@
 
 #import "expr.typ": *
 #import "rational.typ": rat, rat-add, rat-div, rat-eq, rat-from-expr, rat-is-one, rat-is-zero, rat-mul, rat-neg, rat-sub, rat-to-expr
-#import "identity-engine.typ": apply-identities-once
+#import "identities.typ": apply-identities-once
 
 // --- Internal helpers ---
 
@@ -731,7 +731,11 @@
 
   // --- Function ---
   if is-type(expr, "func") {
-    let a = _simplify-once(expr.arg)
+    let args = func-args(expr).map(_simplify-once)
+    if args.len() != 1 {
+      return func(expr.name, ..args)
+    }
+    let a = args.at(0)
     // exp(0) = 1
     if expr.name == "exp" and _is-zero(a) { return num(1) }
     // ln(1) = 0
@@ -848,7 +852,10 @@
   if is-type(expr, "add") {
     return add(_expand-once(expr.args.at(0)), _expand-once(expr.args.at(1)))
   }
-  if is-type(expr, "func") { return func(expr.name, _expand-once(expr.arg)) }
+  if is-type(expr, "func") {
+    let args = func-args(expr).map(_expand-once)
+    return func(expr.name, ..args)
+  }
   if is-type(expr, "div") { return cdiv(_expand-once(expr.num), _expand-once(expr.den)) }
 
   // Multiplication: distribute over addition

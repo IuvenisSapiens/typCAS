@@ -14,7 +14,7 @@
 //   "mul"    — multiplication x·y      (args: (expr, expr))
 //   "pow"    — exponentiation x^y      (base: expr, exp: expr)
 //   "div"    — division x/y            (num: expr, den: expr)
-//   "func"   — named function f(x)     (name: string, arg: expr)
+//   "func"   — named function f(...)   (name: string, args: tuple<expr>)
 //   "log"    — logarithm log_b(x)      (base: expr, arg: expr)
 //   "matrix" — matrix                  (rows: array of arrays)
 //   "piecewise" — piecewise function   (cases: array of (expr, condition))
@@ -144,15 +144,36 @@
 /// Named function application: sin(x), cos(x), ln(x), exp(x), etc.
 ///
 /// - name: Function name (string), e.g. "sin", "ln".
-/// - arg: Argument expression (expr, int, or float).
-/// - returns: (type: "func", name: name, arg: arg)
+/// - args: One or more argument expressions (expr, int, or float).
+/// - returns:
+///   - unary: (type: "func", name: name, args: (arg,), arg: arg)
+///   - n-ary: (type: "func", name: name, args: (...))
 ///
 /// example
-/// func("sin", cvar("x"))  // sin(x)
+/// func("sin", cvar("x"))           // sin(x)
+/// func("hypot2", cvar("x"), cvar("y"))  // hypot2(x, y)
 ///
-#let func(name, arg) = {
-  (type: "func", name: name, arg: _w(arg))
+#let func(name, ..args) = {
+  let args = args.pos().map(_w)
+  if args.len() == 1 {
+    return (type: "func", name: name, args: args, arg: args.at(0))
+  }
+  (type: "func", name: name, args: args)
 }
+
+/// Return function arguments as a tuple for any func node.
+/// Supports both modern `(args: (...))` and legacy `(arg: ...)` shapes.
+#let func-args(expr) = {
+  if not is-type(expr, "func") { return () }
+  let args = expr.at("args", default: none)
+  if args != none { return args }
+  let arg = expr.at("arg", default: none)
+  if arg != none { return (arg,) }
+  ()
+}
+
+/// Return function arity for any func node.
+#let func-arity(expr) = func-args(expr).len()
 
 // --- Convenience constructors for trig/hyp/inverse functions ---
 // Each creates a func() node with the appropriate name.
@@ -388,7 +409,16 @@
   }
   if t == "pow" { return expr-eq(a.base, b.base) and expr-eq(a.exp, b.exp) }
   if t == "div" { return expr-eq(a.num, b.num) and expr-eq(a.den, b.den) }
-  if t == "func" { return a.name == b.name and expr-eq(a.arg, b.arg) }
+  if t == "func" {
+    if a.name != b.name { return false }
+    let aa = func-args(a)
+    let ba = func-args(b)
+    if aa.len() != ba.len() { return false }
+    for i in range(aa.len()) {
+      if not expr-eq(aa.at(i), ba.at(i)) { return false }
+    }
+    return true
+  }
   if t == "log" { return expr-eq(a.base, b.base) and expr-eq(a.arg, b.arg) }
 
   return false

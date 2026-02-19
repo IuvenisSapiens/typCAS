@@ -5,6 +5,7 @@
 // =========================================================================
 
 #import "expr.typ": *
+#import "truths/function-registry.typ": fn-spec, fn-arity-ok
 
 /// Evaluate an expression to a numeric value.
 ///
@@ -77,147 +78,25 @@
     return n / d
   }
 
-  // Named function
+  // Named function (registry-dispatched)
   if is-type(expr, "func") {
-    let a = eval-expr(expr.arg, bindings)
-    if a == none { return none }
-
-    // Basic trig
-    if expr.name == "sin" { return calc.sin(a) }
-    if expr.name == "cos" { return calc.cos(a) }
-    if expr.name == "tan" { return calc.tan(a) }
-    if expr.name == "csc" { return 1.0 / calc.sin(a) }
-    if expr.name == "sec" { return 1.0 / calc.cos(a) }
-    if expr.name == "cot" { return calc.cos(a) / calc.sin(a) }
-
-    // Inverse trig
-    if expr.name == "arcsin" { return calc.asin(a) }
-    if expr.name == "arccos" { return calc.acos(a) }
-    if expr.name == "arctan" { return calc.atan(a) }
-    if expr.name == "arccsc" { return calc.asin(1.0 / a) }
-    if expr.name == "arcsec" { return calc.acos(1.0 / a) }
-    if expr.name == "arccot" { return calc.atan(1.0 / a) }
-    if expr.name == "asin" { return calc.asin(a) }
-    if expr.name == "acos" { return calc.acos(a) }
-    if expr.name == "atan" { return calc.atan(a) }
-    if expr.name == "acsc" { return calc.asin(1.0 / a) }
-    if expr.name == "asec" { return calc.acos(1.0 / a) }
-    if expr.name == "acot" { return calc.atan(1.0 / a) }
-
-    // Hyperbolic
-    if expr.name == "sinh" { return (calc.exp(a) - calc.exp(-a)) / 2.0 }
-    if expr.name == "cosh" { return (calc.exp(a) + calc.exp(-a)) / 2.0 }
-    if expr.name == "tanh" {
-      let ep = calc.exp(a)
-      let em = calc.exp(-a)
-      return (ep - em) / (ep + em)
+    let spec = fn-spec(expr.name)
+    if spec == none or spec.eval == none { return none }
+    let args = ()
+    for aexpr in func-args(expr) {
+      let v = eval-expr(aexpr, bindings)
+      if v == none { return none }
+      args.push(v)
     }
-    if expr.name == "csch" { return 2.0 / (calc.exp(a) - calc.exp(-a)) }
-    if expr.name == "sech" { return 2.0 / (calc.exp(a) + calc.exp(-a)) }
-    if expr.name == "coth" {
-      let ep = calc.exp(a)
-      let em = calc.exp(-a)
-      let den = ep - em
-      if den == 0 { return none }
-      return (ep + em) / den
-    }
-
-    // Inverse hyperbolic
-    if expr.name == "arcsinh" {
-      let val = a + calc.sqrt(a * a + 1.0)
-      if val <= 0 { return none }
-      return calc.ln(val)
-    }
-    if expr.name == "arccosh" {
-      if a < 1 { return none } // Argument to sqrt must be >= 0, and then argument to ln must be > 0
-      let val = a + calc.sqrt(a * a - 1.0)
-      if val <= 0 { return none }
-      return calc.ln(val)
-    }
-    if expr.name == "arctanh" {
-      let arg = (1.0 + a) / (1.0 - a)
-      if arg <= 0 { return none } // Argument to ln must be > 0
-      if a <= -1 or a >= 1 { return none } // Denominator (1-a) cannot be 0, and arg must be > 0
-      return 0.5 * calc.ln(arg)
-    }
-    if expr.name == "arccsch" {
-      if a == 0 { return none } // Division by zero
-      let val = 1.0 / a + calc.sqrt(1.0 / (a * a) + 1.0)
-      if val <= 0 { return none }
-      return calc.ln(val)
-    }
-    if expr.name == "arcsech" {
-      if a <= 0 or a > 1 { return none } // Argument to sqrt must be >= 0, and then argument to ln must be > 0
-      let val = 1.0 / a + calc.sqrt(1.0 / (a * a) - 1.0)
-      if val <= 0 { return none }
-      return calc.ln(val)
-    }
-    if expr.name == "arccoth" {
-      let arg = (a + 1.0) / (a - 1.0)
-      if arg <= 0 { return none } // Argument to ln must be > 0
-      if a == 1 or a == -1 { return none } // Denominators cannot be 0
-      return 0.5 * calc.ln(arg)
-    }
-    if expr.name == "asinh" {
-      let val = a + calc.sqrt(a * a + 1.0)
-      if val <= 0 { return none }
-      return calc.ln(val)
-    }
-    if expr.name == "acosh" {
-      if a < 1 { return none }
-      let val = a + calc.sqrt(a * a - 1.0)
-      if val <= 0 { return none }
-      return calc.ln(val)
-    }
-    if expr.name == "atanh" {
-      let arg = (1.0 + a) / (1.0 - a)
-      if arg <= 0 { return none }
-      if a <= -1 or a >= 1 { return none }
-      return 0.5 * calc.ln(arg)
-    }
-    if expr.name == "acsch" {
-      if a == 0 { return none }
-      let val = 1.0 / a + calc.sqrt(1.0 / (a * a) + 1.0)
-      if val <= 0 { return none }
-      return calc.ln(val)
-    }
-    if expr.name == "asech" {
-      if a <= 0 or a > 1 { return none }
-      let val = 1.0 / a + calc.sqrt(1.0 / (a * a) - 1.0)
-      if val <= 0 { return none }
-      return calc.ln(val)
-    }
-    if expr.name == "acoth" {
-      let arg = (a + 1.0) / (a - 1.0)
-      if arg <= 0 { return none }
-      if a == 1 or a == -1 { return none }
-      return 0.5 * calc.ln(arg)
-    }
-
-    // Other
-    if expr.name == "ln" {
-      if a <= 0 { return none }
-      return calc.ln(a)
-    }
-    if expr.name == "log2" {
-      if a <= 0 { return none }
-      return calc.ln(a) / calc.ln(2.0)
-    }
-    if expr.name == "log10" {
-      if a <= 0 { return none }
-      return calc.ln(a) / calc.ln(10.0)
-    }
-    if expr.name == "exp" { return calc.exp(a) }
-    if expr.name == "abs" { return calc.abs(a) }
-
-    return none
+    if not fn-arity-ok(spec, args.len()) { return none }
+    return (spec.eval)(args)
   }
 
   // Log with base
   if is-type(expr, "log") {
     let b = eval-expr(expr.base, bindings)
     let a = eval-expr(expr.arg, bindings)
-    if b == none or a == none or b <= 0 or a <= 0 { return none }
+    if b == none or a == none or b <= 0 or a <= 0 or b == 1 { return none }
     return calc.ln(a) / calc.ln(b)
   }
 
@@ -304,7 +183,8 @@
     )
   }
   if is-type(expr, "func") {
-    return func(expr.name, substitute(expr.arg, var-name, replacement))
+    let args = func-args(expr).map(a => substitute(a, var-name, replacement))
+    return func(expr.name, ..args)
   }
   if is-type(expr, "log") {
     return (
