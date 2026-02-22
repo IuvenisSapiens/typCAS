@@ -1,26 +1,30 @@
 [package]
 name = "typcas"
-version = "0.1.0"
+version = "0.2.0"
 entrypoint = "lib.typ"
-authors = ["Benjamin Lee<sihooleebd@gmail.com>"]
+authors = ["Benjamin Lee <sihooleebd@gmail.com>"]
 keywords = ["math", "cas", "algebra"]
-description = "Compute algebraic expressions symbolically."
+description = "Task-centric symbolic CAS for Typst with steps and domain metadata."
 license = "MIT"
 repository = "https://github.com/sihooleebd/typCAS"
 exclude = [
-  "test.typ",
-  "test_new.typ",
-  "cas_test_suite.typ",
-  "*test*.typ",
-  "*suite*.typ",
-  "**/*test*.typ",
-  "**/*suite*.typ",
-  "*.pdf",
-  "**/*.pdf",
+  ".github",
+  ".github/**",
+  ".tmp_*.typ",
+  ".gitignore",
+  "archive",
+  "archive/**",
+  "docs",
+  "docs/**",
   "examples",
   "examples/**",
-  "**/examples",
-  "**/examples/**",
-  ".github",
-  ".gitignore",
+  "translators",
+  "translators/**",
+  "V2_REBUILD_MASTER_PLAN.md",
+  "*.pdf",
+  "**/*.pdf",
+  "*.png",
+  "**/*.png",
+  "*.svg",
+  "**/*.svg",
 ]

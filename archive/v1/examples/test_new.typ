@@ -18,7 +18,7 @@
 #let p = cas-parse
 
 /// Assumptions used throughout the unified workflow.
-#let x-pos = assume("x", real: true, positive: true)
+#let x-pos = merge-assumptions(assume("x", real: true, positive: true), assume-domain("x", "(0"))
 
 /// One master expression combining identities, exact rationals, expansion,
 /// logs, trig, and assumption-sensitive terms.
@@ -117,7 +117,7 @@
 
 #block(below: 0.3em)[*Step-by-step simplify of master:*]
  #{
-  let steps = step-simplify(master)
+  let steps = step-simplify(master, assumptions: x-pos)
   display-steps(master, steps)
 }
 

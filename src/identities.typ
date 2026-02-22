@@ -7,4 +7,4 @@
 // =========================================================================
 
 #import "truths/identities.typ": identity-rules
-#import "identity-engine.typ": wild, apply-identities-once
+#import "identity-engine.typ": wild, apply-identities-once, apply-identities-once-meta

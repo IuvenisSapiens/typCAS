@@ -43,16 +43,28 @@
   if is-type(e, "mul") {
     let a = e.args.at(0)
     let b = e.args.at(1)
+
+    // Constant scaling, regardless of operand ordering after simplification.
     if is-type(a, "num") {
-      if is-type(b, "var") and b.name == v {
-        return (0, a.val)
+      let cb = poly-coeffs(b, v)
+      if cb != none { return cb.map(c => c * a.val) }
+    }
+    if is-type(b, "num") {
+      let ca = poly-coeffs(a, v)
+      if ca != none { return ca.map(c => c * b.val) }
+    }
+
+    // General polynomial multiplication (convolution).
+    let left = poly-coeffs(a, v)
+    let right = poly-coeffs(b, v)
+    if left != none and right != none {
+      let result = (0,) * (left.len() + right.len() - 1)
+      for i in range(left.len()) {
+        for j in range(right.len()) {
+          result.at(i + j) = result.at(i + j) + left.at(i) * right.at(j)
+        }
       }
-      if is-type(b, "pow") and is-type(b.base, "var") and b.base.name == v and is-type(b.exp, "num") {
-        let deg = int(b.exp.val)
-        let result = (0,) * (deg + 1)
-        result.at(deg) = a.val
-        return result
-      }
+      return result
     }
   }
 

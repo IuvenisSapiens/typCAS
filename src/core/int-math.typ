@@ -1,39 +1,49 @@
 // =========================================================================
-// CAS Integer Math Helpers
-// =========================================================================
-// Shared integer helpers for candidate generation and coefficient cleanup.
+// typcas v2 Integer Math Utilities
 // =========================================================================
 
-/// Public helper `int-factors`.
+/// Positive divisors of integer `n`.
 #let int-factors(n) = {
   let a = int(calc.abs(n))
   if a == 0 { return (1,) }
-  let f = ()
-  for i in range(1, a + 1) {
-    if calc.rem(a, i) == 0 { f.push(i) }
+
+  let small = ()
+  let large = ()
+  let i = 1
+  while i * i <= a {
+    if calc.rem(a, i) == 0 {
+      small.push(i)
+      let j = int(a / i)
+      if j != i { large.push(j) }
+    }
+    i += 1
   }
-  f
+
+  let out = ()
+  for s in small { out.push(s) }
+  let k = large.len() - 1
+  while k >= 0 {
+    out.push(large.at(k))
+    k -= 1
+  }
+  out
 }
 
-/// Public helper `int-gcd-array`.
+/// GCD of an integer collection (zeros ignored).
 #let int-gcd-array(vals) = {
   let g = 0
   for v in vals {
     let a = int(calc.abs(v))
     if a == 0 { continue }
-    if g == 0 {
-      g = a
-    } else {
-      g = calc.gcd(g, a)
-    }
+    g = if g == 0 { a } else { calc.gcd(g, a) }
   }
   if g == 0 { 1 } else { g }
 }
 
-/// Public helper `int-lcm`.
+/// LCM of two integers (0 if either input is 0).
 #let int-lcm(a, b) = {
   let aa = int(calc.abs(a))
   let bb = int(calc.abs(b))
   if aa == 0 or bb == 0 { return 0 }
-  int(aa / calc.gcd(aa, bb) * bb)
+  int((aa / calc.gcd(aa, bb)) * bb)
 }

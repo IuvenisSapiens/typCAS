@@ -1,45 +1,88 @@
 // =========================================================================
-// CAS Steps Model
+// typcas v2 Step Model
 // =========================================================================
-// Step dictionary constructors used by tracing/rendering.
+// Canonical step nodes:
+// - header
+// - equation(before -> after)
+// - define(lhs = rhs)
+// - note
+// - group(subtrace container)
 // =========================================================================
 
-// =========================================================================
-// 1. STEP DEFINITIONS
-// =========================================================================
+#import "../expr.typ": *
 
-// Common structure for all steps:
-// { type: "step", kind: string, ... }
-
-/// Header: Main derivation line. "= expr  (rule)"
-#let _s-header(expr, rule) = (
-  type: "step",
+#let _s-header(title, expr: none, level: 0) = (
   kind: "header",
+  title: title,
   expr: expr,
-  rule: rule,
+  level: level,
 )
 
-/// Note: Textual annotation or intermediate simplification. "= expr (text)"
-#let _s-note(text, expr: none) = (
-  type: "step",
+#let _s-equation(before, after, rule: none, level: 0, kind: "transform") = (
+  kind: "equation",
+  before: before,
+  after: after,
+  rule: rule,
+  level: level,
+  eq-kind: kind,
+)
+
+#let _s-define(lhs, rhs, label: none, level: 0, prefix: none) = {
+  // Backward-compatible behavior:
+  // - legacy calls: _s-define("u_1", expr, prefix: "where")
+  // - new calls:    _s-define(cvar("u_1"), expr, label: "let")
+  if type(lhs) == str {
+    let shown = cvar(lhs)
+    let lbl = if prefix != none { prefix } else { label }
+    return (
+      kind: "define",
+      lhs: shown,
+      rhs: rhs,
+      label: lbl,
+      level: level,
+    )
+  }
+  (
+    kind: "define",
+    lhs: lhs,
+    rhs: rhs,
+    label: label,
+    level: level,
+  )
+}
+
+#let _s-note(text, expr: none, tone: "note", level: 0) = (
   kind: "note",
   text: text,
   expr: expr,
+  tone: tone,
+  level: level,
 )
 
-/// Define: Sidebar variable definition. "where u = expr"
-#let _s-define(name, val, prefix: "where") = (
-  type: "step",
-  kind: "define",
-  name: name,
-  val: val,
-  prefix: prefix,
+#let _s-group(items, title: none, level: 0, branch: false, branch-label: none) = (
+  kind: "group",
+  items: items,
+  title: title,
+  level: level,
+  branch: branch,
+  branch-label: branch-label,
 )
 
-/// Apply: Sidebar operation result. "du/dx = result (rule)"
-/// Can contain nested sub-steps.
+#let _s-branch(label, items, level: 0) = (
+  kind: "group",
+  items: items,
+  title: none,
+  level: level,
+  branch: true,
+  branch-label: label,
+)
+
+// -------------------------------------------------------------------------
+// Compatibility wrappers (kept to avoid breaking imports)
+// -------------------------------------------------------------------------
+
+// IMPORTANT: sub-steps are rendered before result to avoid spoiler effect.
 #let _s-apply(lhs, result, rule, sub-steps: ()) = (
-  type: "step",
   kind: "apply",
   lhs: lhs,
   result: result,

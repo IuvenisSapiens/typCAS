@@ -299,9 +299,17 @@
   repr(after) < repr(before)
 }
 
+/// Internal helper `_identity-event`.
+#let _identity-event(rule) = (
+  id: rule.at("id", default: "unknown"),
+  label: rule.at("label", default: "identity"),
+  domain-sensitive: rule.at("domain-sensitive", default: false),
+)
+
 /// Internal helper `_rewrite-current-node`.
-#let _rewrite-current-node(expr, allow-domain-sensitive: false) = {
+#let _rewrite-current-node-meta(expr, allow-domain-sensitive: false) = {
   let out = expr
+  let events = ()
   let changed = true
   while changed {
     changed = false
@@ -314,79 +322,135 @@
       let cand = _instantiate-template(rule.rhs, bindings)
       if _accept-rewrite(out, cand) {
         out = cand
+        events.push(_identity-event(rule))
         changed = true
         break
       }
     }
   }
-  out
+  (
+    expr: out,
+    events: events,
+  )
+}
+
+#let _rewrite-current-node(expr, allow-domain-sensitive: false) = {
+  _rewrite-current-node-meta(expr, allow-domain-sensitive: allow-domain-sensitive).expr
 }
 
 /// Internal helper `_rewrite-bottom-up`.
-#let _rewrite-bottom-up(expr, allow-domain-sensitive: false) = {
+#let _rewrite-bottom-up-meta(expr, allow-domain-sensitive: false) = {
   let cur = expr
+  let events = ()
   if is-type(cur, "neg") {
-    cur = neg(_rewrite-bottom-up(cur.arg, allow-domain-sensitive: allow-domain-sensitive))
+    let c = _rewrite-bottom-up-meta(cur.arg, allow-domain-sensitive: allow-domain-sensitive)
+    cur = neg(c.expr)
+    events += c.events
   } else if is-type(cur, "add") {
-    cur = add(
-      _rewrite-bottom-up(cur.args.at(0), allow-domain-sensitive: allow-domain-sensitive),
-      _rewrite-bottom-up(cur.args.at(1), allow-domain-sensitive: allow-domain-sensitive),
-    )
+    let l = _rewrite-bottom-up-meta(cur.args.at(0), allow-domain-sensitive: allow-domain-sensitive)
+    let r = _rewrite-bottom-up-meta(cur.args.at(1), allow-domain-sensitive: allow-domain-sensitive)
+    cur = add(l.expr, r.expr)
+    events += l.events + r.events
   } else if is-type(cur, "mul") {
-    cur = mul(
-      _rewrite-bottom-up(cur.args.at(0), allow-domain-sensitive: allow-domain-sensitive),
-      _rewrite-bottom-up(cur.args.at(1), allow-domain-sensitive: allow-domain-sensitive),
-    )
+    let l = _rewrite-bottom-up-meta(cur.args.at(0), allow-domain-sensitive: allow-domain-sensitive)
+    let r = _rewrite-bottom-up-meta(cur.args.at(1), allow-domain-sensitive: allow-domain-sensitive)
+    cur = mul(l.expr, r.expr)
+    events += l.events + r.events
   } else if is-type(cur, "pow") {
-    cur = pow(
-      _rewrite-bottom-up(cur.base, allow-domain-sensitive: allow-domain-sensitive),
-      _rewrite-bottom-up(cur.exp, allow-domain-sensitive: allow-domain-sensitive),
-    )
+    let b = _rewrite-bottom-up-meta(cur.base, allow-domain-sensitive: allow-domain-sensitive)
+    let e = _rewrite-bottom-up-meta(cur.exp, allow-domain-sensitive: allow-domain-sensitive)
+    cur = pow(b.expr, e.expr)
+    events += b.events + e.events
   } else if is-type(cur, "div") {
-    cur = cdiv(
-      _rewrite-bottom-up(cur.num, allow-domain-sensitive: allow-domain-sensitive),
-      _rewrite-bottom-up(cur.den, allow-domain-sensitive: allow-domain-sensitive),
-    )
+    let n = _rewrite-bottom-up-meta(cur.num, allow-domain-sensitive: allow-domain-sensitive)
+    let d = _rewrite-bottom-up-meta(cur.den, allow-domain-sensitive: allow-domain-sensitive)
+    cur = cdiv(n.expr, d.expr)
+    events += n.events + d.events
   } else if is-type(cur, "func") {
-    let args = func-args(cur).map(a => _rewrite-bottom-up(a, allow-domain-sensitive: allow-domain-sensitive))
+    let args = ()
+    for a in func-args(cur) {
+      let m = _rewrite-bottom-up-meta(a, allow-domain-sensitive: allow-domain-sensitive)
+      args.push(m.expr)
+      events += m.events
+    }
     cur = func(cur.name, ..args)
   } else if is-type(cur, "log") {
+    let b = _rewrite-bottom-up-meta(cur.base, allow-domain-sensitive: allow-domain-sensitive)
+    let a = _rewrite-bottom-up-meta(cur.arg, allow-domain-sensitive: allow-domain-sensitive)
     cur = (
       type: "log",
-      base: _rewrite-bottom-up(cur.base, allow-domain-sensitive: allow-domain-sensitive),
-      arg: _rewrite-bottom-up(cur.arg, allow-domain-sensitive: allow-domain-sensitive),
+      base: b.expr,
+      arg: a.expr,
     )
+    events += b.events + a.events
   } else if is-type(cur, "sum") {
+    let b = _rewrite-bottom-up-meta(cur.body, allow-domain-sensitive: allow-domain-sensitive)
+    let f = _rewrite-bottom-up-meta(cur.from, allow-domain-sensitive: allow-domain-sensitive)
+    let t = _rewrite-bottom-up-meta(cur.to, allow-domain-sensitive: allow-domain-sensitive)
     cur = (
       type: "sum",
-      body: _rewrite-bottom-up(cur.body, allow-domain-sensitive: allow-domain-sensitive),
+      body: b.expr,
       idx: cur.idx,
-      from: _rewrite-bottom-up(cur.from, allow-domain-sensitive: allow-domain-sensitive),
-      to: _rewrite-bottom-up(cur.to, allow-domain-sensitive: allow-domain-sensitive),
+      from: f.expr,
+      to: t.expr,
     )
+    events += b.events + f.events + t.events
   } else if is-type(cur, "prod") {
+    let b = _rewrite-bottom-up-meta(cur.body, allow-domain-sensitive: allow-domain-sensitive)
+    let f = _rewrite-bottom-up-meta(cur.from, allow-domain-sensitive: allow-domain-sensitive)
+    let t = _rewrite-bottom-up-meta(cur.to, allow-domain-sensitive: allow-domain-sensitive)
     cur = (
       type: "prod",
-      body: _rewrite-bottom-up(cur.body, allow-domain-sensitive: allow-domain-sensitive),
+      body: b.expr,
       idx: cur.idx,
-      from: _rewrite-bottom-up(cur.from, allow-domain-sensitive: allow-domain-sensitive),
-      to: _rewrite-bottom-up(cur.to, allow-domain-sensitive: allow-domain-sensitive),
+      from: f.expr,
+      to: t.expr,
     )
+    events += b.events + f.events + t.events
   } else if is-type(cur, "matrix") {
+    let rows = ()
+    for row in cur.rows {
+      let next-row = ()
+      for item in row {
+        let m = _rewrite-bottom-up-meta(item, allow-domain-sensitive: allow-domain-sensitive)
+        next-row.push(m.expr)
+        events += m.events
+      }
+      rows.push(next-row)
+    }
     cur = (
       type: "matrix",
-      rows: cur.rows.map(row => row.map(item => _rewrite-bottom-up(item, allow-domain-sensitive: allow-domain-sensitive))),
+      rows: rows,
     )
   } else if is-type(cur, "piecewise") {
+    let cases = ()
+    for (e, c) in cur.cases {
+      let m = _rewrite-bottom-up-meta(e, allow-domain-sensitive: allow-domain-sensitive)
+      cases.push((m.expr, c))
+      events += m.events
+    }
     cur = (
       type: "piecewise",
-      cases: cur.cases.map(((e, c)) => (_rewrite-bottom-up(e, allow-domain-sensitive: allow-domain-sensitive), c)),
+      cases: cases,
     )
   }
-  _rewrite-current-node(cur, allow-domain-sensitive: allow-domain-sensitive)
+  let here = _rewrite-current-node-meta(cur, allow-domain-sensitive: allow-domain-sensitive)
+  (
+    expr: here.expr,
+    events: events + here.events,
+  )
+}
+
+#let _rewrite-bottom-up(expr, allow-domain-sensitive: false) = {
+  _rewrite-bottom-up-meta(expr, allow-domain-sensitive: allow-domain-sensitive).expr
+}
+
+/// Public helper `apply-identities-once-meta`.
+#let apply-identities-once-meta(expr, allow-domain-sensitive: false) = {
+  _rewrite-bottom-up-meta(expr, allow-domain-sensitive: allow-domain-sensitive)
 }
 
 /// Public helper `apply-identities-once`.
 #let apply-identities-once(expr, allow-domain-sensitive: false) = {
-  _rewrite-bottom-up(expr, allow-domain-sensitive: allow-domain-sensitive)
+  apply-identities-once-meta(expr, allow-domain-sensitive: allow-domain-sensitive).expr
 }

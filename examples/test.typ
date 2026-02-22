@@ -1,1040 +1,804 @@
-// =========================================================================
-// typcas Test & Demo — Complete Function Coverage
-// =========================================================================
 #import "../lib.typ": *
 
-#set page(margin: 1.5cm)
-#set text(font: "New Computer Modern", size: 11pt)
+#set page(margin: 1.35cm)
+#set text(font: "New Computer Modern", size: 10.5pt)
 
-#align(center)[
-  #text(size: 18pt, weight: "bold")[typcas Test Suite]
-  #v(0.3em)
-  #text(size: 10pt, fill: gray)[A Lightweight Computer Algebra System for Typst]
+= typcas v2 Unified Surface Test
+
+#cas.set-step-style((
+  palette: (
+    transform: rgb("#0A9AA4"),
+    warn: rgb("#C27B00"),
+    error: rgb("#B4372F"),
+    meta: rgb("#2E6E77"),
+  ),
+  arrow: (main: "⇒", sub: "↦", meta: "⟹"),
+  indent-size: 1.2em,
+  branch: (
+    mode: "inline",
+    marker: "↳",
+  ),
+))
+
+#let a-base = cas.assume("x", real: true)
+#let a-pos = cas.assume-string("x", "(0")
+#let a-guard = cas.assume-domain("x", "(-inf,1) ∪ (1,inf)")
+#let a-xy = cas.merge-assumptions(
+  cas.assume("x", real: true, nonzero: true),
+  cas.assume("y", real: true, nonzero: true),
+)
+
+#let assert-ok(res, label) = {
+  if not res.ok {
+    let msg = if res.errors != none and res.errors.len() > 0 { res.errors.at(0).message } else { "unknown" }
+    panic("regression failed (" + label + "): " + msg)
+  }
+}
+
+#let assert-true(ok, label) = {
+  if not ok { panic("regression failed: " + label) }
+}
+
+#let assert-expr-eq(lhs, rhs, label) = {
+  let l = repr(cas.parse(lhs))
+  let r = repr(cas.parse(rhs))
+  if l != r {
+    panic("regression failed (" + label + "): " + l + " != " + r)
+  }
+}
+
+== 1. Strict Regression Gates
+#let rg1 = cas.simplify("sin(x)^2 + cos(x)^2", assumptions: a-base)
+#assert-ok(rg1, "simplify-identity")
+#assert-expr-eq(rg1.expr, "1", "pythagorean")
+
+#let rg2 = cas.simplify("(x^2-1)/(x-1)", assumptions: a-guard)
+#assert-ok(rg2, "guarded-cancel")
+#assert-expr-eq(rg2.expr, "x+1", "guarded-cancel-result")
+
+#let rg3 = cas.diff("ln(x)", "x", assumptions: a-pos)
+#assert-ok(rg3, "diff-smoke")
+
+#let rg4 = cas.integrate("sec(x)^2 + csc(x)^2", "x", assumptions: a-base)
+#assert-ok(rg4, "integrate-primitives")
+
+#let rg5 = cas.solve("x^2 + 1", rhs: 0)
+#assert-ok(rg5, "solve-complex")
+#assert-true(rg5.roots != none and rg5.roots.len() == 2, "solve-complex-roots")
+
+#let rg6 = cas.trace("(x^2+1)^3", "diff", var: "x", depth: 1, assumptions: a-base)
+#assert-ok(rg6, "trace-smoke")
+#let _render-smoke = cas.render-steps("(x^2+1)^3", rg6, operation: "diff", var: "x")
+
+#let rg7 = cas.simplify("x^2 + 1", detail: 1, assumptions: a-base)
+#assert-ok(rg7, "core-detail-steps")
+#assert-true(rg7.steps != none and rg7.steps.len() > 0, "core-detail-produces-steps")
+
+#let rg8 = cas.trace("x^2 + 1", "simplify", detail: 0, assumptions: a-base)
+#assert-ok(rg8, "trace-detail-zero")
+#assert-true(rg8.steps != none and rg8.steps.len() == 0, "trace-detail-zero-empty")
+
+#let rg9 = cas.implicit-diff("x^2 + y^2 - 1", "x", "y", assumptions: a-xy)
+#assert-ok(rg9, "implicit-diff-canonical")
+#let rg9e1 = cas.eval(rg9.expr, bindings: (x: 2, y: 3))
+#let rg9e2 = cas.eval("-x/y", bindings: (x: 2, y: 3))
+#assert-ok(rg9e1, "implicit-diff-eval-left")
+#assert-ok(rg9e2, "implicit-diff-eval-right")
+#assert-true(calc.abs(rg9e1.value - rg9e2.value) < 1e-9, "implicit-diff-value")
+
+All strict gates passed.
+
+== 2. UX-First Usage
+#let cx = cas.with(assumptions: a-pos)
+#let simplify-x = cx.simplify
+#let diff-x = cx.diff
+#let solve-x = cx.solve
+#let trace-i = cx.trace-integrate
+
+#let ux-s = simplify-x("sin(x)^2 + cos(x)^2")
+#assert-true(cas.ok(ux-s), "ux-with-simplify-ok")
+*context simplify (expr-of):*\
+*Before:*\
+$ #cas.display("sin(x)^2 + cos(x)^2") $
+*After:*\
+$ #cas.display(cas.expr-of(ux-s)) $
+
+#let ux-d = diff-x("x^3 + ln(x)", "x")
+#assert-true(cas.ok(ux-d), "ux-with-diff-ok")
+*context diff (expr-of):*\
+*Before:*\
+$ #cas.display("x^3 + ln(x)") $
+*After:*\
+$ #cas.display(cas.expr-of(ux-d)) $
+
+#let ux-z = solve-x("x^2 - 4", rhs: 0)
+#assert-true(cas.ok(ux-z), "ux-with-solve-ok")
+*context solve roots (roots-of):*\
+*Before:*\
+$ #cas.display("x^2 - 4") $
+*After:*\
+#let roots = cas.roots-of(ux-z)
+*After (roots):*\
+#for (i, r) in roots.enumerate() [
+  $ r_(#(i + 1)) = #cas.display(r) $
+]
+*After (count):*\
+$ #roots.len() $
+
+*context error message helper (on success):*\
+$ #cas.error-message(ux-s, default: "none") $
+
+#let ux-t = trace-i("2x*cos(x^2)", var: "x", detail: 3)
+#assert-true(cas.ok(ux-t), "ux-with-trace-ok")
+#if cas.steps-of(ux-t).len() > 0 [
+  *context trace-integrate:*
+  #cas.render-steps("2x*cos(x^2)", ux-t, operation: "integrate", var: "x")
 ]
 
-#line(length: 100%, stroke: 0.5pt + gray)
+== 3. Canonical API Surface (`cas.*`)
+#let raw = "log_2(x) + sin(x)^2 + cos(x)^2"
+#let parsed = cas.parsed(raw, assumptions: a-base)
+#let simp = cas.simplify(raw, assumptions: a-base)
 
-// === Helpers ===
-/// Public helper `test-row`.
-#let test-row(label, input-expr, result-expr) = {
-  block(below: 0.6em)[
-    *#label:* $ #cas-display(input-expr) arrow.r.double #cas-display(result-expr) $
-  ]
-}
-/// Public helper `show-fn`.
-#let show-fn(expr) = { $ #cas-display(expr) $ }
-/// Public helper `p`.
-#let p = cas-parse  // shorthand
+*parse/display:* $ #cas.display(parsed.expr) $
+*equation helper:*\
+*Before:*\
+$ #cas.display("x^2-1") $
+*After:*\
+$ #cas.display("(x-1)(x+1)") $
+*simplify*:
+*Before:*\
+$ #cas.display(raw) $
+*After:*\
+$ #cas.display(simp.expr) $
 
-// =====================================================================
-= 1. Expression Construction
-// =====================================================================
+#let ad-src = "(-inf,0)∪(0,inf)"
+#let ad-assume = cas.assume-domain("x", ad-src)
+*parse-domain input:* `(-inf,0)∪(0,inf)`
+*parse-domain (normalized display):*\
+$ #cas.display-domain("x", assumptions: ad-assume) $
+*display-domain (`a-pos`):*\
+$ #cas.display-domain("x", assumptions: a-pos) $
 
-// Parsed expressions
-#table(
-  columns: (auto, auto),
-  stroke: none,
-  inset: (x: 1em, y: 0.4em),
-  [*Variable*], show-fn(p("x")),
-  [*Number*], show-fn(p("42")),
-  [*Pi*], show-fn(p("pi")),
-  [*Euler*], show-fn(p("e")),
-  [*Reserved i*], show-fn(p("i")),
-  [*Sum*], show-fn(p("x + 3")),
-  [*Product*], show-fn(p("2x")),
-  [*Power*], show-fn(p("x^2")),
-  [*Fraction*], show-fn(p("x / 3")),
-  [*Composed*], show-fn(p("3x^2 - 2x + 5")),
-  [*Abs*], show-fn(p("abs(x)")),
-  [*Log*], show-fn(p("log_2(x)")),
-  [*Log Impl*], show-fn(p("log_2 x")),
-  [*Log2 Fn*], show-fn(p("log2(x)")),
-  [*Log10 Fn*], show-fn(p("log10(x)")),
-  [*Log(a,b)*], show-fn(p("log(2, 8)")),
-)
+#let qdom = cas.domain("x^2 + 1", "x", assumptions: a-pos)
+#assert-ok(qdom, "query-domain")
+*query domain value:*\
+$ #qdom.value $
 
+#let d1 = cas.diff("x^3 + ln(x)", "x", order: 2, assumptions: a-pos)
+#assert-ok(d1, "diff-order")
+*diff(order=2)*\
+*Before:*\
+$ #cas.display("x^3 + ln(x)") $
+*After:*\
+$ #cas.display(d1.expr) $
 
-=== Trig (6)
-#grid(
-  columns: 6,
-  gutter: 1em,
-  show-fn(p("sin(x)")),
-  show-fn(p("cos(x)")),
-  show-fn(p("tan(x)")),
-  show-fn(p("csc(x)")),
-  show-fn(p("sec(x)")),
-  show-fn(p("cot(x)")),
-)
+#let i1 = cas.integrate("x^2 + 1", "x", assumptions: a-base)
+#let i2 = cas.integrate("x", "x", definite: (0, 2), assumptions: a-base)
+#assert-ok(i1, "integrate-indef")
+#assert-ok(i2, "integrate-def")
+*integrate*\
+*Before:*\
+$ #cas.display("x^2 + 1") $
+*After:*\
+$ #cas.display(i1.expr) $
+*definite integrate [0,2]*\
+*Before:*\
+$ #cas.display("x") $
+*After:*\
+$ #cas.display(i2.expr) $
 
-=== Inverse Trig (6)
-#grid(
-  columns: 6,
-  gutter: 1em,
-  show-fn(p("arcsin(x)")),
-  show-fn(p("arccos(x)")),
-  show-fn(p("arctan(x)")),
-  show-fn(p("arccsc(x)")),
-  show-fn(p("arcsec(x)")),
-  show-fn(p("arccot(x)")),
-)
+#let id1 = cas.implicit-diff("x*y - 3", "x", "y", assumptions: a-xy)
+#assert-ok(id1, "implicit-diff-second")
+*implicit diff*\
+*Before:*\
+$ #cas.display("x*y - 3") $
+*After:*\
+$ #cas.display(id1.expr) $
 
-=== Alias Spot Checks
-#grid(
-  columns: 4,
-  gutter: 1em,
-  show-fn(p("asin(x)")),
-  show-fn(p("asec(x)")),
-  show-fn(p("asinh(x)")),
-  show-fn(p("acosh(x)")),
-)
+#let s1 = cas.solve("x^2 - 4", rhs: 0)
+#assert-ok(s1, "solve-basic")
+*solve roots count (distinct):*\
+*Before:*\
+$ #cas.display("x^2 - 4") $
+*After:*\
+$ #s1.roots.len() $
 
-=== Hyperbolic (6)
-#grid(
-  columns: 6,
-  gutter: 1em,
-  show-fn(p("sinh(x)")),
-  show-fn(p("cosh(x)")),
-  show-fn(p("tanh(x)")),
-  show-fn(p("csch(x)")),
-  show-fn(p("sech(x)")),
-  show-fn(p("coth(x)")),
-)
+#let f1 = cas.factor("x^2 - 4")
+#assert-ok(f1, "factor-basic")
+*factor*\
+*Before:*\
+$ #cas.display("x^2 - 4") $
+*After:*\
+$ #cas.display(f1.expr) $
 
-=== Inverse Hyperbolic (6)
-#grid(
-  columns: 6,
-  gutter: 1em,
-  show-fn(p("arcsinh(x)")),
-  show-fn(p("arccosh(x)")),
-  show-fn(p("arctanh(x)")),
-  show-fn(p("arccsch(x)")),
-  show-fn(p("arcsech(x)")),
-  show-fn(p("arccoth(x)")),
-)
+#let t1 = cas.taylor("exp(x)", "x", 0, 4)
+#assert-ok(t1, "taylor-basic")
+*taylor*\
+*Before:*\
+$ #cas.display("exp(x)") $
+*After:*\
+$ #cas.display(t1.expr) $
 
-=== Other
-#grid(
-  columns: 3,
-  gutter: 1em,
-  show-fn(p("ln(x)")), show-fn(p("exp(x)")), show-fn(p("sqrt(x)")),
-)
+#let l1 = cas.limit("sin(x)/x", "x", 0)
+#assert-ok(l1, "limit-basic")
+*limit*\
+*Before:*\
+$ #cas.display("sin(x)/x") $
+*After:*\
+$ #cas.display(l1.expr) $
 
-=== Summation & Product
-#grid(
-  columns: 2,
-  gutter: 2em,
-  show-fn(p("sum_(k=1)^n k^2")), show-fn(p("product_(k=1)^n k")),
-)
+#let e1 = cas.eval("x^2 + 1", bindings: (x: 3))
+#assert-ok(e1, "eval-basic")
+*eval:*\
+*Before:*\
+$ #cas.display("x^2 + 1") $
+*After:*\
+$ #e1.value $
 
-=== Matrix
-$ #cas-display(cmat(((1, 2), (3, 4)))) #h(2em) #cas-display(mat-id(3)) $
+#let sub1 = cas.substitute("x^2 + y", "x", "z+1")
+#assert-ok(sub1, "substitute-basic")
+*substitute*\
+*Before:*\
+$ #cas.display("x^2 + y") + " ; x -> z+1" $
+*After:*\
+$ #cas.display(sub1.expr) $
 
-=== Piecewise
-#{
-  let f = piecewise(((cvar("x"), "x > 0"), (neg(cvar("x")), "x < 0"), (num(0), none)))
-  block(below: 0.6em)[
-    *Piecewise function:* $ f(x) = #cas-display(f) $
-  ]
-}
+#let tr1 = cas.trace-integrate("2x*cos(x^2)", var: "x", detail: 2, assumptions: a-pos)
+#assert-ok(tr1, "trace-canonical")
+#if tr1.steps != none [#cas.render-steps("2x*cos(x^2)", tr1, operation: "integrate", var: "x")]
 
-=== cas-equation
-#{
-  block(below: 0.6em)[
-    *Formatted equation:* #cas-equation(p("x^2 + 1"), p("y"))
-  ]
-}
+== 4. Query Input + Task API (No Field-Call Parens)
+#let q = cas.expr("((x^2+1)^3 + x)^2", assumptions: a-pos)
+#let q-impl = cas.expr("x^2 + y^2 - 1", assumptions: a-xy)
+#let q2 = cas.expr(q.input, assumptions: a-base)
 
-// =====================================================================
-= 2. Simplification
-// =====================================================================
+#let qp = cas.parsed(q)
+#assert-ok(qp, "query-parsed")
+*query parsed:* $ #cas.display(qp.expr) $
 
-#{
-  let x = p("x")
-  test-row("x + 0", p("x + 0"), simplify(p("x + 0")))
-  test-row("x × 1", p("x * 1"), simplify(p("x * 1")))
-  test-row("x × 0", p("x * 0"), simplify(p("x * 0")))
-  test-row("x^1", p("x^1"), simplify(p("x^1")))
-  test-row("x^0", p("x^0"), simplify(p("x^0")))
-  test-row("2 + 3", p("2 + 3"), simplify(p("2 + 3")))
-  test-row("4 × 5", p("4 * 5"), simplify(p("4 * 5")))
-  test-row("2^3", p("2^3"), simplify(p("2^3")))
-  test-row("−(−x)", neg(neg(cvar("x"))), simplify(neg(neg(cvar("x")))))
-  test-row("x + x", p("x + x"), simplify(p("x + x")))
-  test-row("3x + 2x", p("3x + 2x"), simplify(p("3x + 2x")))
-  test-row("x × x", p("x * x"), simplify(p("x * x")))
-  test-row("x / x", p("x / x"), simplify(p("x / x")))
-  test-row("6 / 4", p("6 / 4"), simplify(p("6 / 4")))
-}
+#let qs = cas.simplify(q, detail: 1)
+#assert-ok(qs, "query-simplify")
+*query simplify*\
+*Before:*\
+$ #cas.display("((x^2+1)^3 + x)^2") $
+*After:*\
+$ #cas.display(qs.expr) $
 
-=== Function identities
-#test-row("ln(e)", ln-of(const-e), simplify(ln-of(const-e)))
-#test-row("exp(0)", exp-of(num(0)), simplify(exp-of(num(0))))
-#test-row("sinh(0)", sinh-of(num(0)), simplify(sinh-of(num(0))))
-#test-row("cosh(0)", cosh-of(num(0)), simplify(cosh-of(num(0))))
-#test-row("tanh(0)", tanh-of(num(0)), simplify(tanh-of(num(0))))
+#let qd = cas.diff(q, "x", detail: 2)
+#assert-ok(qd, "query-diff")
+*query diff*\
+*Before:*\
+$ #cas.display("((x^2+1)^3 + x)^2") $
+*After:*\
+$ #cas.display(qd.expr) $
 
-=== Identity Table Rewrites
-#{
-  test-row("sin²(x)+cos²(x)", p("sin(x)^2 + cos(x)^2"), simplify(p("sin(x)^2 + cos(x)^2")))
-  test-row("1/sin(x)", p("1/sin(x)"), simplify(p("1/sin(x)")))
-  test-row("1/cos(x)", p("1/cos(x)"), simplify(p("1/cos(x)")))
-  test-row("sin(x)/cos(x)", p("sin(x)/cos(x)"), simplify(p("sin(x)/cos(x)")))
-  test-row("cos(x)/sin(x)", p("cos(x)/sin(x)"), simplify(p("cos(x)/sin(x)")))
-  test-row("exp(ln(x))", p("exp(ln(x))"), simplify(p("exp(ln(x))")))
-  test-row("ln(exp(x))", p("ln(exp(x))"), simplify(p("ln(exp(x))")))
-}
+#let qi = cas.integrate(q, "x")
+#assert-ok(qi, "query-integrate")
+*query integrate*\
+*Before:*\
+$ #cas.display("((x^2+1)^3 + x)^2") $
+*After:*\
+$ #cas.display(qi.expr) $
 
-=== Logarithm rules
-#{
-  let x = cvar("x")
-  let y = cvar("y")
-  test-row("ln(x·y)", ln-of(mul(x, y)), simplify(ln-of(mul(x, y))))
-  test-row("ln(x/y)", ln-of(cdiv(x, y)), simplify(ln-of(cdiv(x, y))))
-  test-row("ln(x²)", p("ln(x^2)"), simplify(p("ln(x^2)")))
-}
+#let qv = cas.implicit-diff(q-impl, "x", "y")
+#assert-ok(qv, "query-implicit-diff")
+*query implicit diff*\
+*Before:*\
+$ #cas.display("x^2 + y^2 - 1") $
+*After:*\
+$ #cas.display(qv.expr) $
 
-=== Absolute value
-#test-row("|−5|", abs-of(num(-5)), simplify(abs-of(num(-5))))
-#test-row("|3|", abs-of(num(3)), simplify(abs-of(num(3))))
-#test-row("|−x|", abs-of(neg(cvar("x"))), simplify(abs-of(neg(cvar("x")))))
+#let qz = cas.solve(q, rhs: 0)
+#assert-ok(qz, "query-solve")
+*query solve roots (distinct):*\
+*Before:*\
+$ #cas.display("((x^2+1)^3 + x)^2") $
+*After:*\
+$ #cas.roots-of(qz).len() $
+*query recreated context (`with` equivalent):*\
+$ #q2.field " / strict=" #q2.strict $
 
-// =====================================================================
-= 3. Expansion
-// =====================================================================
+#let qdm = cas.domain(q2, "x")
+#assert-ok(qdm, "query-domain")
+*query domain:*\
+$ #qdm.value $
 
-=== expand()
-#{
-  let expr = p("(x + 1)^2")
-  let expanded = expand(expr)
-  let simplified = simplify(expanded)
-  block(below: 0.6em)[
-    *Expand $(x+1)^2$:*
-    $ #cas-display(expr) arrow.r.double #cas-display(expanded) $
-    $ arrow.r.double #cas-display(simplified) #h(0.5em) "(simplified)" $
-  ]
-}
+#let qchain = cas.simplify(cas.diff(q, "x"), detail: 1)
+#assert-ok(qchain, "query-chain")
+*task chain diff -> simplify*\
+*Before:*\
+$ #cas.display(qd.expr) $
+*After:*\
+$ #cas.display(qchain.expr) $
 
-#{
-  let expr = mul(add(cvar("x"), num(1)), add(cvar("x"), num(2)))
-  let expanded = expand(expr)
-  let simplified = simplify(expanded)
-  block(below: 0.6em)[
-    *Expand $(x+1)(x+2)$:*
-    $ #cas-display(expr) arrow.r.double #cas-display(expanded) $
-    $ arrow.r.double #cas-display(simplified) #h(0.5em) "(simplified)" $
-  ]
-}
+#let qtr = cas.trace(q, "diff", var: "x", detail: 3)
+#assert-ok(qtr, "query-trace")
+#if qtr.steps != none [#cas.render-steps(q, qtr, operation: "diff", var: "x")]
 
-// =====================================================================
-= 4. Substitution
-// =====================================================================
+== 5. Matrix / Systems / Poly Task APIs
+#let m-a = cas.matrix(((1, 2), (3, 4)))
+#let m-b = cas.matrix(((5, 6), (7, 8)))
+#let m-c = cas.matrix(((5, 7), (9, 11)))
+#let m-d = cas.matrix(((2, 0), (1, 2)))
+#let m-e = cas.matrix(((1, 2, 3), (4, 5, 6)))
+#let m-f = cas.matrix(((1, 2), (3, 5)))
+#let m-g = cas.matrix(((2, 1), (1, 3)))
+#let m-h = cas.matrix(((2, 1), (1, 2)))
 
-#{
-  let expr = p("x^2 + 3x")
-  let repl = p("y + 1")
-  let sub-expr = substitute(expr, "x", repl)
-  let expanded = simplify(sub-expr, expand: true)
-  block(below: 0.6em)[
-    *Substitute $x = #cas-display(repl)$ into $#cas-display(expr)$:*
-    $ arrow.r.double #cas-display(sub-expr) $
-    $ arrow.r.double #cas-display(expanded) #h(0.5em) "(expanded)" $
-  ]
-}
+#let ma = cas.mat-add(m-a, m-b)
+#assert-ok(ma, "matrix-add")
+*matrix add*\
+*Before:*\
+$ #cas.display(m-a) + #cas.display(m-b) $
+*After:*\
+$ #cas.display(ma.expr) $
 
-// =====================================================================
-= 5. Differentiation
-// =====================================================================
+#let ms = cas.mat-sub(m-c, m-a)
+#assert-ok(ms, "matrix-sub")
+*matrix sub*\
+*Before:*\
+$ #cas.display(m-c) - #cas.display(m-a) $
+*After:*\
+$ #cas.display(ms.expr) $
 
-#{
-  let all = (
-    ("d/dx (x³)", p("x^3")),
-    ("d/dx (sin x)", p("sin(x)")),
-    ("d/dx (cos x)", p("cos(x)")),
-    ("d/dx (tan x)", p("tan(x)")),
-    ("d/dx (csc x)", p("csc(x)")),
-    ("d/dx (sec x)", p("sec(x)")),
-    ("d/dx (cot x)", p("cot(x)")),
-    ("d/dx (ln x)", p("ln(x)")),
-    ("d/dx (eˣ)", p("exp(x)")),
-    // Inverse trig
-    ("d/dx (arcsin x)", p("arcsin(x)")),
-    ("d/dx (arccos x)", p("arccos(x)")),
-    ("d/dx (arctan x)", p("arctan(x)")),
-    ("d/dx (arccsc x)", p("arccsc(x)")),
-    ("d/dx (arcsec x)", p("arcsec(x)")),
-    ("d/dx (arccot x)", p("arccot(x)")),
-    // Hyperbolic
-    ("d/dx (sinh x)", p("sinh(x)")),
-    ("d/dx (cosh x)", p("cosh(x)")),
-    ("d/dx (tanh x)", p("tanh(x)")),
-    ("d/dx (csch x)", p("csch(x)")),
-    ("d/dx (sech x)", p("sech(x)")),
-    ("d/dx (coth x)", p("coth(x)")),
-    // Inverse Hyperbolic
-    ("d/dx (arcsinh x)", p("arcsinh(x)")),
-    ("d/dx (arccosh x)", p("arccosh(x)")),
-    ("d/dx (arctanh x)", p("arctanh(x)")),
-    ("d/dx (arccsch x)", p("arccsch(x)")),
-    ("d/dx (arcsech x)", p("arcsech(x)")),
-    ("d/dx (arccoth x)", p("arccoth(x)")),
-    // Other functions
-    ("d/dx (|x|)", p("abs(x)")),
-    ("d/dx (√x)", p("sqrt(x)")),
-    ("d/dx (log₂x)", p("log_2(x)")),
-    ("d/dx (log2 x)", p("log2(x)")),
-    ("d/dx (log10 x)", p("log10(x)")),
-  )
-  for (label, expr) in all {
-    test-row(label, expr, simplify(diff(expr, "x")))
-  }
-}
+#let msc = cas.mat-scale(2, m-a)
+#assert-ok(msc, "matrix-scale")
+*matrix scale*\
+*Before:*\
+$ 2 dot.op #cas.display(m-a) $
+*After:*\
+$ #cas.display(msc.expr) $
 
-#block(below: 0.6em)[
-  *Domain notes:*
-  $ (dif)/(dif x) abs(x) = x / abs(x) #h(0.6em) "for" #h(0.4em) x != 0 $ (undefined at $x = 0$).
-  $ (dif)/(dif x) arccosh(x) = 1 / sqrt(x^2 - 1) #h(0.6em) "for real domain" #h(0.4em) x > 1 $.
+#let mm = cas.mat-mul(m-a, m-d)
+#assert-ok(mm, "matrix-mul")
+*matrix mul*\
+*Before:*\
+$ #cas.display(m-a) dot.op #cas.display(m-d) $
+*After:*\
+$ #cas.display(mm.expr) $
+
+#let mt = cas.mat-transpose(m-e)
+#assert-ok(mt, "matrix-transpose")
+*matrix transpose*\
+*Before:*\
+$ #cas.display(m-e) $
+*After:*\
+$ #cas.display(mt.expr) $
+
+#let md = cas.mat-det(m-a)
+#assert-ok(md, "matrix-det")
+*matrix det*\
+*Before:*\
+$ #cas.display(m-a) $
+*After:*\
+$ #cas.display(md.expr) $
+
+#let mi = cas.mat-inv(m-f)
+#assert-ok(mi, "matrix-inv")
+*matrix inv*\
+*Before:*\
+$ #cas.display(m-f) $
+*After:*\
+$ #cas.display(mi.expr) $
+
+#let msolve = cas.mat-solve(m-g, (5, 6))
+#assert-ok(msolve, "matrix-solve")
+*matrix solve*\
+*Before (A):*\
+$ #cas.display(m-g) $
+*Before (b):*\
+$ "(5, 6)" $
+*After:*\
+#for (i, s) in msolve.expr.enumerate() [
+  $ x_(#(i + 1)) = #cas.display(s) $
 ]
 
-=== Higher-Order Derivatives
-#{
-  let expr = p("x^4")
-  block(below: 0.6em)[
-    *d²/dx² (x⁴):* $ #cas-display(expr) arrow.r.double #cas-display(diff-n(expr, "x", 2)) $
-  ]
-}
-#{
-  let expr = p("sin(x)")
-  block(below: 0.6em)[
-    *d³/dx³ (sin x):* $ #cas-display(expr) arrow.r.double #cas-display(diff-n(expr, "x", 3)) $
-  ]
-}
-
-=== Implicit Differentiation
-#{
-  let expr = p("x^2 + y^2 - 1")
-  let result = implicit-diff(expr, "x", "y")
-  block(below: 0.6em)[
-    *Implicit: $x^2 + y^2 = 1$, find $dif y \/ dif x$:*
-    $ (dif y) / (dif x) = #cas-display(simplify(result)) $
-  ]
-}
-#{
-  let expr = add(mul(cvar("x"), cvar("y")), sub(pow(cvar("y"), num(2)), num(4)))
-  let result = implicit-diff(expr, "x", "y")
-  block(below: 0.6em)[
-    *Implicit: $x y + y^2 = 4$, find $dif y \/ dif x$:*
-    $ (dif y) / (dif x) = #cas-display(simplify(result)) $
-  ]
-}
-
-// =====================================================================
-= 6. Integration
-// =====================================================================
-
-#{
-  let all = (
-    ("∫ x² dx", p("x^2")),
-    ("∫ sin(x) dx", p("sin(x)")),
-    ("∫ cos(x) dx", p("cos(x)")),
-    ("∫ eˣ dx", p("exp(x)")),
-    ("∫ 1/x dx", p("1 / x")),
-    ("∫ sec(x) dx", p("sec(x)")),
-    ("∫ csc(x) dx", p("csc(x)")),
-    ("∫ tan(x) dx", p("tan(x)")),
-    ("∫ cot(x) dx", p("cot(x)")),
-    ("∫ sec²(x) dx", pow(sec-of(cvar("x")), num(2))),
-    ("∫ csc²(x) dx", pow(csc-of(cvar("x")), num(2))),
-    ("∫ (sec²(x) + csc²(x)) dx", p("sec(x)^2 + csc(x)^2")),
-    ("∫ (sec²x + csc²x) dx", p("sec^2 x + csc^2 x")),
-    ("∫ sinh(x) dx", p("sinh(x)")),
-    ("∫ cosh(x) dx", p("cosh(x)")),
-    ("∫ tanh(x) dx", p("tanh(x)")),
-    ("∫ csch(x) dx", p("csch(x)")),
-    ("∫ sech(x) dx", p("sech(x)")),
-    ("∫ coth(x) dx", p("coth(x)")),
-  )
-  for (label, expr) in all {
-    test-row(label, expr, simplify(integrate(expr, "x")))
-  }
-}
-
-=== Definite Integrals
-#{
-  let result = definite-integral(p("x^2"), "x", 0, 1)
-  block(below: 0.6em)[
-    *∫₀¹ x² dx:* $ #cas-display(result) $
-  ]
-}
-
-#{
-  let result = definite-integral(p("2x"), "x", 1, 3)
-  block(below: 0.6em)[
-    *∫₁³ 2x dx:* $ #cas-display(result) $
-  ]
-}
-
-#{
-  let result = definite-integral(p("sin(x)"), "x", 0, p("pi"))
-  block(below: 0.6em)[
-    *∫₀^π sin(x) dx:* $ #cas-display(result) $
-  ]
-}
-
-// =====================================================================
-= 7. Taylor Series
-// =====================================================================
-
-#{
-  let result = taylor(p("exp(x)"), "x", 0, 4)
-  block(below: 0.6em)[
-    *Taylor of eˣ at x=0 (order 4):*
-    $ #cas-display(result) $
-  ]
-}
-
-#{
-  let result = taylor(p("sin(x)"), "x", 0, 5)
-  block(below: 0.6em)[
-    *Taylor of sin(x) at x=0 (order 5):*
-    $ #cas-display(result) $
-  ]
-}
-
-#{
-  let result = taylor(p("cos(x)"), "x", 0, 4)
-  block(below: 0.6em)[
-    *Taylor of cos(x) at x=0 (order 4):*
-    $ #cas-display(result) $
-  ]
-}
-
-#{
-  let result = taylor(p("ln(x)"), "x", 1, 4)
-  block(below: 0.6em)[
-    *Taylor of ln(x) at x=1 (order 4):*
-    $ #cas-display(result) $
-  ]
-}
-
-// =====================================================================
-= 8. Limits
-// =====================================================================
-
-#{
-  let expr = p("sin(x) / x")
-  let result = limit(expr, "x", 0)
-  block(below: 0.6em)[
-    *lim(x→0) sin(x)/x:* $ #cas-display(result) $
-  ]
-}
-
-#{
-  let expr = p("(x^2 - 4) / (x - 2)")
-  let result = limit(expr, "x", 2)
-  block(below: 0.6em)[
-    *lim(x→2) (x²−4)/(x−2):* $ #cas-display(result) $
-  ]
-}
-
-#{
-  let expr = p("(exp(x) - 1) / x")
-  let result = limit(expr, "x", 0)
-  block(below: 0.6em)[
-    *lim(x→0) (eˣ−1)/x:* $ #cas-display(result) $
-  ]
-}
-
-// =====================================================================
-= 9. Equation Solving
-// =====================================================================
-
-#{
-  let lhs = p("2x + 6")
-  let solutions = solve(lhs, 0, "x")
-  test-row("Linear: 2x + 6 = 0", lhs, solutions.at(0))
-}
-
-#{
-  let lhs = p("3x - 9")
-  let solutions = solve(lhs, 0, "x")
-  test-row("Linear: 3x − 9 = 0", lhs, solutions.at(0))
-}
-
-#{
-  let lhs = p("x^2 - 4")
-  let solutions = solve(lhs, 0, "x")
-  block(below: 0.6em)[
-    *Quadratic: x² − 4 = 0:* $ #cas-display(lhs) = 0 arrow.r.double x = #cas-display(solutions.at(0)) "or" x = #cas-display(solutions.at(1)) $
-  ]
-}
-
-#{
-  let lhs = p("x^2 - 5x + 6")
-  let solutions = solve(lhs, 0, "x")
-  block(below: 0.6em)[
-    *Quadratic: x² − 5x + 6 = 0:* $ #cas-display(lhs) = 0 arrow.r.double x = #solutions.map(s => cas-display(s)).join(" or ") $
-  ]
-}
-
-#{
-  let lhs = p("x^3 + 2x^2 + 3x + 1")
-  let solutions = solve(lhs, 0, "x")
-  block(below: 0.6em)[
-    *Cubic (numeric fallback): x³ + 2x² + 3x + 1 = 0:*
-    $ #cas-display(lhs) = 0 arrow.r.double x = #solutions.map(s => cas-display(s)).join(", ") $
-  ]
-}
-
-// =====================================================================
-= 10. Polynomial Factoring
-// =====================================================================
-
-#{
-  let expr = p("x^2 - 5x + 6")
-  let factored = factor(expr, "x")
-  test-row("x² − 5x + 6", expr, factored)
-}
-
-#{
-  let expr = p("x^2 - 4")
-  let factored = factor(expr, "x")
-  test-row("x² − 4", expr, factored)
-}
-
-#{
-  let expr = p("x^3 - 6x^2 + 11x - 6")
-  let factored = factor(expr, "x")
-  test-row("x³ − 6x² + 11x − 6", expr, factored)
-}
-
-// =====================================================================
-= 11. Polynomial Operations
-// =====================================================================
-
-=== Polynomial Long Division
-#{
-  let dividend = p("x^3 - 1")
-  let divisor = p("x - 1")
-  let result = poly-div(dividend, divisor, "x")
-  if result != none {
-    let (q, r) = result
-    block(below: 0.6em)[
-      *$(x^3 - 1) div (x - 1)$:*
-      $ "quotient" = #cas-display(q), #h(1em) "remainder" = #cas-display(r) $
-    ]
-  }
-}
-
-#{
-  let dividend = p("x^3 + 2x^2 - x - 2")
-  let divisor = p("x + 2")
-  let result = poly-div(dividend, divisor, "x")
-  if result != none {
-    let (q, r) = result
-    block(below: 0.6em)[
-      *$(x^3 + 2x^2 - x - 2) div (x + 2)$:*
-      $ "quotient" = #cas-display(q), #h(1em) "remainder" = #cas-display(r) $
-    ]
-  }
-}
-
-=== Partial Fraction Decomposition
-#{
-  let expr = cdiv(add(mul(num(2), cvar("x")), num(3)), p("x^2 - 1"))
-  let result = partial-fractions(expr, "x")
-  block(below: 0.6em)[
-    *Partial fractions of $(2x + 3)/(x^2 - 1)$:*
-    $ #cas-display(expr) = #cas-display(result) $
-  ]
-}
-
-#{
-  let expr = cdiv(num(1), p("x^2 - 5x + 6"))
-  let result = partial-fractions(expr, "x")
-  block(below: 0.6em)[
-    *Partial fractions of $1/(x^2 - 5x + 6)$:*
-    $ #cas-display(expr) = #cas-display(result) $
-  ]
-}
-
-// =====================================================================
-= 12. Numeric Evaluation
-// =====================================================================
-
-#{
-  let expr = p("3x^2 + 2x + 1")
-  let result = eval-expr(expr, (x: 2))
-  block(below: 0.6em)[
-    *Evaluate at x = 2:* $ #cas-display(expr) = #result $
-  ]
-}
-
-#{
-  let expr = sin-of(cdiv(const-pi, num(2)))
-  let result = eval-expr(expr, (:))
-  block(below: 0.6em)[
-    *Evaluate:* $ #cas-display(expr) = #calc.round(result, digits: 6) $
-  ]
-}
-
-#{
-  let expr = p("abs(-7)")
-  let result = eval-expr(expr, (:))
-  block(below: 0.6em)[
-    *Evaluate:* $ #cas-display(expr) = #result $
-  ]
-}
-
-#{
-  let expr = log-of(num(2), num(8))
-  let result = eval-expr(expr, (:))
-  block(below: 0.6em)[
-    *Evaluate:* $ #cas-display(expr) = #calc.round(result, digits: 6) $
-  ]
-}
-
-#{
-  let expr = p("log10(1000)")
-  let result = eval-expr(expr, (:))
-  block(below: 0.6em)[
-    *Evaluate:* $ #cas-display(expr) = #calc.round(result, digits: 6) $
-  ]
-}
-
-#{
-  let expr = p("hypot2(3, 4)")
-  let result = eval-expr(expr, (:))
-  block(below: 0.6em)[
-    *Registry multi-arg function:* $ #cas-display(expr) = #result $
-  ]
-}
-
-=== Summation Evaluation
-#{
-  // Σ_{k=1}^{10} k² = 385
-  let expr = p("sum_(k=1)^10 k^2")
-  let result = eval-expr(expr, (:))
-  block(below: 0.6em)[
-    *Evaluate:* $ #cas-display(expr) = #result $
-  ]
-}
-
-#{
-  // Π_{k=1}^{5} k = 120
-  let expr = p("product_(k=1)^5 k")
-  let result = eval-expr(expr, (:))
-  block(below: 0.6em)[
-    *Evaluate:* $ #cas-display(expr) = #result $
-  ]
-}
-
-// =====================================================================
-= 13. Matrix Algebra
-// =====================================================================
-
-#{
-  let a = cmat(((1, 2), (3, 4)))
-  let b = cmat(((5, 6), (7, 8)))
-
-  block(below: 0.6em)[
-    *A + B:*
-    $ #cas-display(a) + #cas-display(b) = #cas-display(mat-add(a, b)) $
-  ]
-
-  block(below: 0.6em)[
-    *A − B:*
-    $ #cas-display(a) - #cas-display(b) = #cas-display(mat-sub(a, b)) $
-  ]
-
-  block(below: 0.6em)[
-    *A × B:*
-    $ #cas-display(a) dot.op #cas-display(b) = #cas-display(mat-mul(a, b)) $
-  ]
-
-  block(below: 0.6em)[
-    *3 · A (scalar multiply):*
-    $ 3 dot.op #cas-display(a) = #cas-display(mat-scale(num(3), a)) $
-  ]
-
-  block(below: 0.6em)[
-    *det(A):* $ det #cas-display(a) = #cas-display(mat-det(a)) $
-  ]
-
-  block(below: 0.6em)[
-    *Aᵀ:* $ #cas-display(a)^top = #cas-display(mat-transpose(a)) $
-  ]
-
-  block(below: 0.6em)[
-    *A⁻¹:* $ #cas-display(a)^(-1) = #cas-display(mat-inv(a)) $
-  ]
-}
-
-=== Eigenvalues & Eigenvectors
-#{
-  let m = cmat(((2, 1), (1, 2)))
-  let eigenvals = mat-eigenvalues(m)
-  block(below: 0.6em)[
-    *Eigenvalues of $mat(2, 1; 1, 2)$:*
-    $ lambda = #eigenvals.map(e => cas-display(e)).join(", ") $
-  ]
-  let eigenvecs = mat-eigenvectors(m)
-  block(below: 0.6em)[
-    *Eigenvectors:*
-    #for (val, evec) in eigenvecs [
-      $ lambda = #cas-display(val): #h(0.5em) vec(#cas-display(evec.at(0)), #cas-display(evec.at(1))) $
-    ]
-  ]
-}
-
-=== System of Equations (Cramer's Rule)
-#{
-  let a = cmat(((1, 2), (3, 4)))
-  let b-vec = (num(5), num(6))
-  let solutions = mat-solve(a, b-vec)
-  block(below: 0.6em)[
-    *Solve Ax = b:*
-    $ #cas-display(a) vec(x, y) = vec(5, 6) $
-    $ x = #cas-display(solutions.at(0)), #h(0.5em) y = #cas-display(solutions.at(1)) $
-  ]
-}
-
-
-// =====================================================================
-= 14. Step-by-Step Mode
-// =====================================================================
-
-=== Step-by-Step Simplification
-#{
-  let expr = p("0 * x + 5")
-  let steps = step-simplify(expr)
-  display-steps(expr, steps)
-}
-
-=== Step-by-Step Differentiation
-#{
-  let expr = p("x^2 * sin(x)")
-  let steps = step-diff(expr, "x")
-  display-steps(expr, steps, operation: "diff", var: "x")
-}
-
-#{
-  let expr = exp-of(sin-of(cvar("x")))
-  let steps = step-diff(expr, "x")
-  display-steps(expr, steps, operation: "diff", var: "x")
-}
-
-=== Step-by-Step Integration
-#{
-  let expr = p("x^2 + 3x + 1")
-  let steps = step-integrate(expr, "x")
-  display-steps(expr, steps, operation: "integrate", var: "x")
-}
-
-=== Step-by-Step Solving
-#{
-  let lhs = p("x^2 - 4")
-  let steps = step-solve(lhs, 0, "x")
-  display-steps(lhs, steps, operation: "solve", var: "x", rhs: 0)
-}
-#{
-  let lhs = p("x^3 + 2x^2 + 3x + 1")
-  let steps = step-solve(lhs, 0, "x")
-  display-steps(lhs, steps, operation: "solve", var: "x", rhs: 0)
-}
-
-#{
-  let lhs = p("2x + 6")
-  let steps = step-solve(lhs, 0, "x")
-  display-steps(lhs, steps, operation: "solve", var: "x", rhs: 0)
-}
-
-// =====================================================================
-= 15. Content Parsing
-// =====================================================================
-
-#{
-  let expr1 = cas-parse($x^2 + frac(1, 2)$)
-  let expr2 = cas-parse($sqrt(x) + root(3, y)$)
-  let expr3 = cas-parse($sum_(k=1)^n k^2$)
-  let expr4 = cas-parse($sin(x) + cos(x)$)
-  let expr5 = cas-parse($product_(i=1)^n i$)
-  let expr6 = cas-parse("log2(x) + log10(x)")
-  let expr7 = cas-parse($i$)
-
-  block(below: 0.6em)[
-    *Content `$x^2 + frac(1, 2)$`:* $ #cas-display(expr1) $
-    *Content `$sqrt(x) + root(3, y)$`:* $ #cas-display(expr2) $
-    *Content `$sum_(k=1)^n k^2$`:* $ #cas-display(expr3) $
-    *Content `$sin(x) + cos(x)$`:* $ #cas-display(expr4) $
-    *Content Product* $ #cas-display(expr5) $
-    *Content `$log2(x) + log10(x)$`:* $ #cas-display(expr6) $
-    *Content reserved `$i$` constant:* $ #cas-display(expr7) $
-    *Policy:* lowercase `i` is reserved for imaginary-unit support and cannot be used as a free variable in solve/diff/integrate APIs.
-  ]
-}
-
-// =====================================================================
-= 16. Parser Round-Trip
-// =====================================================================
-
-#{
-  let expr = p("x^3 + 2x^2 - x + 5")
-  let simplified = simplify(expr)
-  let deriv = simplify(diff(simplified, "x"))
-  block(below: 0.6em)[
-    *Parse, simplify, differentiate `"x^3 + 2x^2 - x + 5"`*
-    $ "parsed:" #h(0.5em) #cas-display(expr) $
-    $ "simplified:" #h(0.5em) #cas-display(simplified) $
-    $ "d/dx:" #h(0.5em) #cas-display(deriv) $
-  ]
-}
-
-#{
-  let expr = p("x^2 - 5x + 6")
-  let solutions = solve(expr, 0, "x")
-  block(below: 0.6em)[
-    *Parse and solve `"x^2 - 5x + 6 = 0"`*
-    $ #cas-display(expr) = 0 arrow.r.double x = #solutions.map(s => cas-display(s)).join(" or ") $
-  ]
-}
-
-// =====================================================================
-= 17. Exact Rational Arithmetic
-// =====================================================================
-
-#{
-  let expr = p("1/3 + 1/6")
-  let out = simplify(expr)
-  test-row("1/3 + 1/6", expr, out)
-}
-
-#{
-  let expr = p("2/3 * 9/10")
-  let out = simplify(expr)
-  test-row("2/3 × 9/10", expr, out)
-}
-
-#{
-  let expr = p("y + x + 2x + 3")
-  let out = simplify(expr)
-  test-row("Canonical collect/order", expr, out)
-}
-
-// =====================================================================
-= 18. Polynomial Metadata + Complex Roots
-// =====================================================================
-
-#{
-  let expr = p("x^2 + 1")
-  let meta = solve-meta(expr, 0, "x")
-  block(below: 0.6em)[
-    *x² + 1 = 0 metadata*
-    $ "factor:" #h(0.5em) #cas-display(meta.factor-form) $
-    $ "square-free gcd:" #h(0.5em) #cas-display(meta.square-free-gcd) $
-    #for (i, r) in meta.roots.enumerate() [
-      $ r_(#(i + 1)) = #cas-display(r.expr), #h(0.5em) "mult=" #r.multiplicity, #h(0.5em) "exact=" #r.exact, #h(0.5em) "complex=" #r.complex $
-    ]
-  ]
-}
-
-#{
-  let expr = p("x^2 * (x - 1)^2")
-  let meta = solve-meta(expr, 0, "x")
-  block(below: 0.6em)[
-    *Repeated roots + square-free preprocessing*
-    $ "f(x)=" #cas-display(expr) $
-    $ "gcd(f,f')" = #cas-display(meta.square-free-gcd) $
-    $ "square-free part" = #cas-display(meta.square-free-part) $
-    #for (i, r) in meta.roots.enumerate() [
-      $ r_(#(i + 1)) = #cas-display(r.expr), #h(0.5em) "mult=" #r.multiplicity $
-    ]
-  ]
-}
-
-// =====================================================================
-= 19. Integration Engine Upgrades
-// =====================================================================
-
-#{
-  let expr = p("2x * cos(x^2)")
-  let out = integrate(expr, "x")
-  test-row("u-sub detection: ∫2x cos(x²) dx", expr, out)
-}
-
-#{
-  let expr = p("x * exp(x)")
-  let out = simplify(integrate(expr, "x"))
-  test-row("By parts: ∫x e^x dx", expr, out)
-}
-
-#{
-  let expr = p("1 / (x^2 - 1)")
-  let out = simplify(integrate(expr, "x"))
-  test-row("Partial fractions workflow", expr, out)
-}
-
-// =====================================================================
-= 20. Assumptions
-// =====================================================================
-
-#{
-  let pos-x = assume("x", real: true, positive: true)
-  let expr = p("abs(x) + sqrt(x^2)")
-  let out = simplify(expr, assumptions: pos-x)
-  block(below: 0.6em)[
-    *Assume x > 0:* $ #cas-display(expr) arrow.r.double #cas-display(out) $
-  ]
-}
-
-#{
-  let real-x = assume("x", real: true)
-  let expr = p("sqrt(x^2)")
-  let out = simplify(expr, assumptions: real-x)
-  block(below: 0.6em)[
-    *Assume x is real:* $ #cas-display(expr) arrow.r.double #cas-display(out) $
-  ]
-}
-
-// =====================================================================
-= 21. Systems of Equations
-// =====================================================================
-
-#{
-  let lin = solve-linear-system(
-    (
-      (p("2x + y"), 5),
-      (p("x - y"), 1),
-    ),
-    ("x", "y"),
-  )
-  block(below: 0.6em)[
-    *Linear system:*
-    $2x + y = 5, #h(1em) x - y = 1$
-    $x = #cas-display(lin.at("x")), #h(0.8em) y = #cas-display(lin.at("y"))$
-  ]
-}
-
-#{
-  let nl = solve-nonlinear-system(
-    (
-      (p("x^2 + y^2"), 5),
-      (p("x - y"), 1),
-    ),
-    ("x", "y"),
-    (x: 2.0, y: 1.0),
-  )
-  block(below: 0.6em)[
-    *Nonlinear numeric system (Newton):*
-    $x^2 + y^2 = 5, #h(1em) x - y = 1$
-    $ "converged:" #nl.converged, #h(0.8em) "iters:" #nl.iterations $
-    $x approx #cas-display(nl.solution.at("x")), #h(0.8em) y approx #cas-display(nl.solution.at("y"))$
-  ]
-}
-
-// =====================================================================
-= 22. Canonical Simplifier Normalization
-// =====================================================================
-
-#{
-  let expr = p("y + x + 2y + x + 1/2 + 1/2")
-  let s1 = simplify(expr)
-  let s2 = simplify(s1)
-  block(below: 0.6em)[
-    *Normalization & idempotence check:*
-    $ "s1 =" #cas-display(s1) $
-    $ "s2 =" #cas-display(s2), #h(0.6em) "idempotent:" #expr-eq(s1, s2) $
-  ]
-}
-
-#{
-  let loop1 = p("sin(x)^2 + cos(x)^2 + sin(x)^2 + cos(x)^2")
-  let l1s1 = simplify(loop1)
-  let l1s2 = simplify(l1s1)
-  block(below: 0.6em)[
-    *Loop-safety check (trig repeat):*
-    $ "s1 =" #cas-display(l1s1) $
-    $ "s2 =" #cas-display(l1s2), #h(0.6em) "idempotent:" #expr-eq(l1s1, l1s2) $
-  ]
-}
-
-#{
-  let loop2 = p("ln((x*y)/z)")
-  let l2s1 = simplify(loop2)
-  let l2s2 = simplify(l2s1)
-  block(below: 0.6em)[
-    *Loop-safety check (log decomposition):*
-    $ "s1 =" #cas-display(l2s1) $
-    $ "s2 =" #cas-display(l2s2), #h(0.6em) "idempotent:" #expr-eq(l2s1, l2s2) $
-  ]
-}
-
-// =====================================================================
-= 23. Property-Style Harness
-// =====================================================================
-
-#{
-  let samples = (
-    p("x^3 + 2x^2 - x + 5"),
-    p("(x + 1)^2"),
-    p("sin(x)^2 + cos(x)^2"),
-    p("1/3 + 1/6 + x + x"),
-  )
-
-  let equivalent-on-x(e1, e2, samples: (-2, -1, 0, 1, 2), tol: 1e-6) = {
-    let seen = false
-    for xv in samples {
-      let v1 = eval-expr(e1, (x: xv))
-      let v2 = eval-expr(e2, (x: xv))
-      if v1 == none or v2 == none { continue }
-      seen = true
-      if calc.abs(v1 - v2) > tol { return false }
-    }
-    if seen { return true }
-    expr-eq(simplify(e1), simplify(e2))
-  }
-
-  let pass-idem = true
-  let pass-roundtrip = true
-  let pass-diff-int = true
-  let pass-solve-sub = true
-
-  for e in samples {
-    let s = simplify(e)
-    if not expr-eq(simplify(s), s) { pass-idem = false }
-
-    let rt = cas-parse(cas-display(e))
-    if not expr-eq(simplify(rt), simplify(e)) and not equivalent-on-x(rt, e) {
-      pass-roundtrip = false
-    }
-  }
-
-  // d/dx(∫f dx) == f for a polynomial sample
-  {
-    let f = p("3x^2 + 2x + 1")
-    let recovered = simplify(diff(integrate(f, "x"), "x"))
-    if not expr-eq(recovered, simplify(f)) and not equivalent-on-x(recovered, f) {
-      pass-diff-int = false
-    }
-  }
-
-  // Solver substitution check for real roots.
-  {
-    let f = p("x^3 - 6x^2 + 11x - 6")
-    let roots = solve(f, 0, "x")
-    for r in roots {
-      let rv = eval-expr(r, (:))
-      if rv != none {
-        let val = eval-expr(substitute(f, "x", r), (:))
-        if val == none or calc.abs(val) > 1e-6 { pass-solve-sub = false }
-      }
-    }
-  }
-
-  block(below: 0.6em)[
-    *Property checks:*
-    $ "simplify idempotence:" #pass-idem $
-    $ "parse↔display round-trip:" #pass-roundtrip $
-    $ "diff/integral consistency:" #pass-diff-int $
-    $ "solver substitution:" #pass-solve-sub $
-  ]
-}
+#let mev = cas.mat-eigenvalues(m-h)
+#assert-ok(mev, "matrix-eigs")
+*matrix eigenvalues:*\
+*Before:*\
+$ #cas.display(m-h) $
+*After:*\
+#for (i, lam) in mev.value.enumerate() [
+  $ lambda_(#(i + 1)) = #cas.display(lam) $
+]
+
+#let mevec = cas.mat-eigenvectors(m-h)
+#assert-ok(mevec, "matrix-eigvecs")
+*matrix eigenvectors:*\
+*Before:*\
+$ #cas.display(m-h) $
+*After:*\
+#for (i, pair) in mevec.value.enumerate() [
+  #let lam = pair.at(0)
+  #let vec = pair.at(1)
+  $ lambda_(#(i + 1)) = #cas.display(lam), v_(#(i + 1)) = (#cas.display(vec.at(0)), #cas.display(vec.at(1))) $
+]
+
+#let lins = cas.solve-linear-system(("2x+y-5", "x-y-1"), ("x", "y"))
+#assert-ok(lins, "systems-linear")
+*linear system:*\
+*Before:*\
+$ #cas.display("2x+y-5") + ", " + #cas.display("x-y-1") $
+*After:*\
+$ x = #cas.display(lins.value.at("x")), y = #cas.display(lins.value.at("y")) $
+
+#let nls = cas.solve-nonlinear-system(("x^2+y^2-5", "x-y-1"), ("x", "y"), (x: 2, y: 1))
+#assert-ok(nls, "systems-nonlinear")
+*nonlinear system:*\
+*Before:*\
+$ #cas.display("x^2+y^2-5") + ", " + #cas.display("x-y-1") $
+*After:*\
+$ upright("converged") = #nls.value.converged, upright("iterations") = #nls.value.iterations $
+$ x approx #cas.display(nls.value.solution.at("x")), y approx #cas.display(nls.value.solution.at("y")) $
+
+#let pd = cas.poly-div("x^3-1", "x-1", "x")
+#let pd-q = cas.coeffs-to-expr(pd.value.at(0), "x")
+#let pd-r = cas.coeffs-to-expr(pd.value.at(1), "x")
+#assert-ok(pd, "poly-div")
+#assert-ok(pd-q, "poly-div-quotient-expr")
+#assert-ok(pd-r, "poly-div-remainder-expr")
+*poly div:*\
+*Before:*\
+$ #cas.display("x^3-1") + " / " + #cas.display("x-1") $
+*After:*\
+$ q(x) = #cas.display(pd-q.expr), r(x) = #cas.display(pd-r.expr) $
+
+#let ppf = cas.partial-fractions("(2x+3)/(x^2-1)", "x")
+#let ppf-original = cas.parse("(2x+3)/(x^2-1)")
+#assert-ok(ppf, "poly-pf")
+#assert-true(repr(cas.expr-of(ppf)) != repr(ppf-original), "poly-pf-decomposed")
+*partial fractions:*\
+*Before:*\
+$ #cas.display("(2x+3)/(x^2-1)") $
+*After:*\
+$ #cas.display(ppf.expr) $
+
+== 6. Unified Demo Flow
+#let master = "(x+1)/(x+1) + ln(exp(x)) + sin(x)^2 + cos(x)^2 + sqrt(x^2) + (2/5 + 7/15 - 13/15) + ((x+4)(x-4) - (x^2-16)) - (3 + abs(x))"
+#let qdemo = cas.expr(master, assumptions: a-pos)
+
+*Domain (x):*\
+$ #cas.display-domain("x", assumptions: a-pos) $
+
+#let rs = cas.simplify(qdemo, expand: true, allow-domain-sensitive: true, detail: 1)
+#assert-ok(rs, "demo-simplify")
+*demo simplify*\
+*Before:*\
+$ #cas.display(master) $
+*After:*\
+$ #cas.display(rs.expr) $
+
+#let rd = cas.diff(qdemo, "x", detail: 1)
+#let ri = cas.integrate(rd, "x")
+#let rz = cas.solve(rs, rhs: 0, detail: 1)
+#assert-ok(rd, "demo-diff")
+#assert-ok(ri, "demo-integrate")
+#assert-ok(rz, "demo-solve")
+
+*demo derivative*\
+*Before:*\
+$ #cas.display(master) $
+*After:*\
+$ #cas.display(rd.expr) $
+*demo integral of derivative*\
+*Before:*\
+$ #cas.display(rd.expr) $
+*After:*\
+$ #cas.display(ri.expr) $
+*Roots found (distinct):*\
+*Before:*\
+$ #cas.display(rs.expr) + " = 0" $
+*After:*\
+$ #cas.roots-of(rz).len() $
+*Restrictions summary:*\
+$ "unresolved=" #rs.restrictions.len() ", satisfied=" #rs.satisfied.len() ", conflicts=" #rs.conflicts.len() $
+
+== 7. Step Engine Showcase
+#let st1 = cas.trace-simplify(qdemo, detail: 1, assumptions: a-pos)
+#assert-ok(st1, "steps-simplify-d1")
+*Simplify trace (detail 1):*\
+#cas.render-steps(qdemo, st1, operation: "simplify")
+
+#let st2 = cas.trace-simplify(qdemo, detail: 4, assumptions: a-pos)
+#assert-ok(st2, "steps-simplify-d4")
+*Simplify trace (detail 4):*\
+#cas.render-steps(qdemo, st2, operation: "simplify")
+
+#let st3 = cas.trace-diff("(x^2+1)^3", var: "x", detail: 3, assumptions: a-base)
+#assert-ok(st3, "steps-diff")
+*Diff trace:*\
+#cas.render-steps("(x^2+1)^3", st3, operation: "diff", var: "x")
+
+#let st4 = cas.trace-integrate("2x*cos(x^2)", var: "x", detail: 4, assumptions: a-pos)
+#assert-ok(st4, "steps-integrate-usub")
+*U-sub integrate trace:*\
+#cas.render-steps("2x*cos(x^2)", st4, operation: "integrate", var: "x")
+
+#let st7 = cas.trace-integrate("sec(x)^2 + csc(x)^2", var: "x", detail: 3, assumptions: a-base)
+#assert-ok(st7, "steps-integrate-linearity")
+*Additive integrate trace:*\
+#cas.render-steps("sec(x)^2 + csc(x)^2", st7, operation: "integrate", var: "x")
+
+#let st5 = cas.trace-solve("x^2-4", rhs: 0, detail: 3)
+#assert-ok(st5, "steps-solve")
+*Solve trace:*\
+#cas.render-steps("x^2-4", st5, operation: "solve", var: "x", rhs: 0)
+
+#let st6 = cas.trace-diff("(x^2+1)^3", detail: 4, depth: 1, assumptions: a-base)
+#assert-ok(st6, "steps-depth-override")
+*Depth override demo (`detail:4` + `depth:1`):*\
+#cas.render-steps("(x^2+1)^3", st6, operation: "diff", var: "x")
+
+== 8. Additional Examples (Expanded)
+#let ex-s1 = cas.simplify("((x^2-1)/(x-1)) + 1/sin(x)", assumptions: a-guard)
+#assert-ok(ex-s1, "simplify-guarded")
+*simplify (guarded cancel + reciprocal canonical):*\
+*Before:*\
+$ #cas.display("((x^2-1)/(x-1)) + 1/sin(x)") $
+*After:*\
+$ #cas.display(ex-s1.expr) $
+
+#let ex-s2 = cas.simplify("sqrt(x^2) + abs(x)", assumptions: a-pos, allow-domain-sensitive: true)
+#assert-ok(ex-s2, "simplify-domain-sensitive")
+*simplify (domain-sensitive):*\
+*Before:*\
+$ #cas.display("sqrt(x^2) + abs(x)") $
+*After:*\
+$ #cas.display(ex-s2.expr) $
+
+#let ex-d1 = cas.diff("exp(3x) + arctan(x^2)", "x", assumptions: a-base)
+#assert-ok(ex-d1, "diff-1")
+*diff (exp + inverse trig):*\
+*Before:*\
+$ #cas.display("exp(3x) + arctan(x^2)") $
+*After:*\
+$ #cas.display(ex-d1.expr) $
+
+#let ex-d2 = cas.diff("x*ln(x)", "x", assumptions: a-pos)
+#assert-ok(ex-d2, "diff-2")
+*diff (product + log):*\
+*Before:*\
+$ #cas.display("x*ln(x)") $
+*After:*\
+$ #cas.display(ex-d2.expr) $
+
+#let ex-i1 = cas.integrate("x*exp(x)", "x", assumptions: a-base)
+#assert-ok(ex-i1, "integrate-1")
+*integrate (by parts flavor):*\
+*Before:*\
+$ #cas.display("x*exp(x)") $
+*After:*\
+$ #cas.display(ex-i1.expr) $
+
+#let ex-i2 = cas.integrate("sech(x)^2 + csch(x)^2", "x", assumptions: a-base)
+#assert-ok(ex-i2, "integrate-2")
+*integrate (hyperbolic square-family):*\
+*Before:*\
+$ #cas.display("sech(x)^2 + csch(x)^2") $
+*After:*\
+$ #cas.display(ex-i2.expr) $
+
+#let ex-i3 = cas.integrate("1/(x^2-1)", "x", assumptions: a-guard)
+#assert-ok(ex-i3, "integrate-3")
+*integrate (rational / partial fractions):*\
+*Before:*\
+$ #cas.display("1/(x^2-1)") $
+*After:*\
+$ #cas.display(ex-i3.expr) $
+
+#let ex-sol1 = cas.solve("x^3 - 6x^2 + 11x - 6", rhs: 0)
+#assert-ok(ex-sol1, "solve-cubic")
+*solve (cubic roots count):*\
+*Before:*\
+$ #cas.display("x^3 - 6x^2 + 11x - 6") $
+*After:*\
+$ #cas.roots-of(ex-sol1).len() $
+
+#let ex-sol2 = cas.solve("x^4 + 1", rhs: 0)
+#assert-ok(ex-sol2, "solve-quartic-complex")
+*solve (quartic complex roots count):*\
+*Before:*\
+$ #cas.display("x^4 + 1") $
+*After:*\
+$ #cas.roots-of(ex-sol2).len() $
+
+#let ex-f1 = cas.factor("x^4 - 16")
+#assert-ok(ex-f1, "factor")
+*factor:*\
+*Before:*\
+$ #cas.display("x^4 - 16") $
+*After:*\
+$ #cas.display(ex-f1.expr) $
+
+#let ex-t1 = cas.taylor("sin(x)", "x", 0, 7)
+#assert-ok(ex-t1, "taylor")
+*taylor:*\
+*Before:*\
+$ #cas.display("sin(x)") $
+*After:*\
+$ #cas.display(ex-t1.expr) $
+
+#let ex-l1 = cas.limit("(cos(x)-1)/x", "x", 0)
+#assert-ok(ex-l1, "limit")
+*limit:*\
+*Before:*\
+$ #cas.display("(cos(x)-1)/x") $
+*After:*\
+$ #cas.display(ex-l1.expr) $
+
+#let ex-e1 = cas.eval("sin(pi/2) + log10(100)")
+#assert-ok(ex-e1, "eval")
+*eval:*\
+*Before:*\
+$ #cas.display("sin(pi/2) + log10(100)") $
+*After:*\
+$ #ex-e1.value $
+
+#let ex-sub1 = cas.substitute("x^2 + y^2", "y", "2x")
+#assert-ok(ex-sub1, "substitute")
+*substitute:*\
+*Before:*\
+$ #cas.display("x^2 + y^2") + " ; y -> 2x" $
+*After:*\
+$ #cas.display(ex-sub1.expr) $
+
+#let ex-pc = cas.poly-coeffs("x^4 - 3x + 2", "x")
+#assert-ok(ex-pc, "poly-coeffs")
+#let ex-pb = cas.coeffs-to-expr(ex-pc.value, "x")
+#assert-ok(ex-pb, "poly-coeffs-roundtrip")
+*poly coeffs roundtrip:*\
+*Before:*\
+$ #cas.display("x^4 - 3x + 2") $
+*After:*\
+$ #cas.display(ex-pb.expr) $
+
+#let ex-lins = cas.solve-linear-system(("x+y-3", "2x-y"), ("x", "y"))
+#assert-ok(ex-lins, "linear-system")
+*linear system:*\
+*Before:*\
+$ #cas.display("x+y-3") + ", " + #cas.display("2x-y") $
+*After:*\
+$ x = #cas.display(ex-lins.value.at("x")), y = #cas.display(ex-lins.value.at("y")) $
+
+#let ex-domain = cas.assume-domain("t", "(-inf,-2] ∪ (0,4) ∪ (4,inf)")
+*domain display (`t`):*\
+$ #cas.display-domain("t", assumptions: ex-domain) $
+
+#let c-demo = cas.with(assumptions: a-guard)
+#let ex-cx1 = (c-demo.simplify)("(x^2-1)/(x-1)")
+#let ex-cx2 = (c-demo.integrate)("1/(x^2-1)", "x")
+#assert-ok(ex-cx1, "context-simplify")
+#assert-ok(ex-cx2, "context-integrate")
+*context simplify:*\
+*Before:*\
+$ #cas.display("(x^2-1)/(x-1)") $
+*After:*\
+$ #cas.display(ex-cx1.expr) $
+*context integrate:*\
+*Before:*\
+$ #cas.display("1/(x^2-1)") $
+*After:*\
+$ #cas.display(ex-cx2.expr) $
+
+=== 8.1 Function + Identity Bundle
+#let fx-sign-a = cas.eval("sign(-3)")
+#let fx-sign-b = cas.eval("sign(0)")
+#let fx-sign-c = cas.eval("sgn(5)")
+#assert-ok(fx-sign-a, "fn-sign-neg")
+#assert-ok(fx-sign-b, "fn-sign-zero")
+#assert-ok(fx-sign-c, "fn-sign-pos")
+#assert-true(fx-sign-a.value == -1 and fx-sign-b.value == 0 and fx-sign-c.value == 1, "fn-sign-values")
+#assert-expr-eq(cas.parse("sgn(x)"), "sign(x)", "fn-sign-alias")
+*sign / sgn:*\
+*Before:*\
+$ #cas.display("sign(-3)") ", " #cas.display("sign(0)") ", " #cas.display("sgn(5)") $
+*After:*\
+$ #fx-sign-a.value ", " #fx-sign-b.value ", " #fx-sign-c.value $
+
+#let fx-rounding = cas.eval("floor(2.9) + ceil(2.1) + round(2.6)")
+#assert-ok(fx-rounding, "fn-floor-ceil-round")
+#assert-true(fx-rounding.value == 8, "fn-floor-ceil-round-values")
+*floor + ceil + round:*\
+*Before:*\
+$ #cas.display("floor(2.9) + ceil(2.1) + round(2.6)") $
+*After:*\
+$ #fx-rounding.value $
+
+#let fx-trunc = cas.eval("trunc(-2.9)")
+#let fx-frac = cas.eval("fracpart(-2.9)")
+#assert-ok(fx-trunc, "fn-trunc")
+#assert-ok(fx-frac, "fn-fracpart")
+#assert-true(fx-trunc.value == -2, "fn-trunc-value")
+#assert-true(calc.abs(fx-frac.value - (-0.9)) < 1e-9, "fn-fracpart-value")
+*trunc / fracpart:*\
+*Before:*\
+$ #cas.display("trunc(-2.9)") ", " #cas.display("fracpart(-2.9)") $
+*After:*\
+$ #fx-trunc.value ", " #fx-frac.value $
+
+#let fx-min = cas.eval("min(3,4,1)")
+#let fx-max = cas.eval("max(3,4,1)")
+#let fx-clamp = cas.eval("clamp(10,0,5)")
+#assert-ok(fx-min, "fn-min")
+#assert-ok(fx-max, "fn-max")
+#assert-ok(fx-clamp, "fn-clamp")
+#assert-true(fx-min.value == 1 and fx-max.value == 4 and fx-clamp.value == 5, "fn-min-max-clamp-values")
+*min / max / clamp:*\
+*Before:*\
+$ #cas.display("min(3,4,1)") ", " #cas.display("max(3,4,1)") ", " #cas.display("clamp(10,0,5)") $
+*After:*\
+$ #fx-min.value ", " #fx-max.value ", " #fx-clamp.value $
+
+#let fx-clamp-ok = cas.simplify("clamp(x,0,5)")
+#let fx-clamp-bad = cas.simplify("clamp(x,5,0)", strict: false)
+#assert-ok(fx-clamp-ok, "fn-clamp-restriction-ok")
+#assert-ok(fx-clamp-bad, "fn-clamp-restriction-conflict-result")
+#assert-true(fx-clamp-ok.satisfied.len() > 0, "fn-clamp-restriction-satisfied")
+#assert-true(fx-clamp-bad.conflicts.len() > 0, "fn-clamp-restriction-conflict")
+*clamp restriction metadata:*\
+*Before:*\
+$ #cas.display("clamp(x,5,0)") $
+*After:*\
+$ "conflicts=" #fx-clamp-bad.conflicts.len() $
+
+#let id-log1p = cas.simplify("log1p(expm1(x))")
+#assert-ok(id-log1p, "id-log1p-expm1")
+#assert-expr-eq(id-log1p.expr, "x", "id-log1p-expm1-result")
+
+#let id-expm1 = cas.simplify("expm1(log1p(x))", allow-domain-sensitive: true)
+#assert-ok(id-expm1, "id-expm1-log1p")
+#assert-expr-eq(id-expm1.expr, "x", "id-expm1-log1p-result")
+
+#let id-cbrt = cas.simplify("(cbrt(x))^3")
+#assert-ok(id-cbrt, "id-cbrt-cube")
+#assert-expr-eq(id-cbrt.expr, "x", "id-cbrt-cube-result")
+
+#let id-sqrt = cas.simplify("(sqrt(x))^2", allow-domain-sensitive: true)
+#assert-ok(id-sqrt, "id-sqrt-square")
+#assert-expr-eq(id-sqrt.expr, "x", "id-sqrt-square-result")
+
+#let id-min = cas.simplify("min(x,x)")
+#let id-max = cas.simplify("max(x,x)")
+#let id-clamp = cas.simplify("clamp(x,a,a)")
+#assert-ok(id-min, "id-min-idempotent")
+#assert-ok(id-max, "id-max-idempotent")
+#assert-ok(id-clamp, "id-clamp-degenerate")
+#assert-expr-eq(id-min.expr, "x", "id-min-idempotent-result")
+#assert-expr-eq(id-max.expr, "x", "id-max-idempotent-result")
+#assert-expr-eq(id-clamp.expr, "a", "id-clamp-degenerate-result")
+
+#let id-signabs = cas.simplify("sign(x)*abs(x)")
+#assert-ok(id-signabs, "id-sign-abs")
+#assert-expr-eq(id-signabs.expr, "x", "id-sign-abs-result")
+
+#let id-abs-self = cas.simplify("abs(x)/x", allow-domain-sensitive: true)
+#let id-self-abs = cas.simplify("x/abs(x)", allow-domain-sensitive: true)
+#assert-ok(id-abs-self, "id-abs-over-self")
+#assert-ok(id-self-abs, "id-self-over-abs")
+#assert-expr-eq(id-abs-self.expr, "sign(x)", "id-abs-over-self-result")
+#assert-expr-eq(id-self-abs.expr, "sign(x)", "id-self-over-abs-result")
+
+#let id-telemetry = cas.simplify("min(x,x)", detail: 1)
+#assert-ok(id-telemetry, "id-telemetry")
+#assert-true(id-telemetry.diagnostics.at("identity-count", default: 0) > 0, "id-telemetry-count")
+*identity expansion sample:*\
+*Before:*\
+$ #cas.display("abs(x)/x + x/abs(x) + min(x,x)") $
+*After:*\
+$ #cas.display(cas.simplify("abs(x)/x + x/abs(x) + min(x,x)", allow-domain-sensitive: true).expr) $
+
+== 9. Translation Layer Note (compact)
+#import "../translators/translation.typ": simplify as v1-simplify, implicit-diff as v1-implicit-diff
+
+#let t-s = v1-simplify("sin(x)^2 + cos(x)^2")
+#let t-id = v1-implicit-diff("x*y - 3", "x", "y")
+
+*v1 simplify alias:* $ #cas.display(t-s) $
+*v1 implicit diff alias:* $ #cas.display(t-id) $
+
+Canonical `cas.*` API is preferred for new documents.
+
+== 10. Final Status
+All unified checks passed.

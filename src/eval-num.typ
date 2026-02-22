@@ -28,6 +28,7 @@
 
   // Constant
   if is-type(expr, "const") {
+    // Philosophy exception: foundational numeric constants are structural.
     if expr.name == "i" { return none }
     // allow constants to be shadowed by bindings (except reserved imaginary i)
     if expr.name in bindings { return bindings.at(expr.name) }

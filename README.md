@@ -1,179 +1,268 @@
-# typcas
+# typcas (v 0.2.0)
 
-A lightweight Computer Algebra System (CAS) written in pure Typst.
+Task-centric CAS for Typst with Builder-style orchestration and structured results.
 
-`typcas` lets you parse math input, simplify symbolically, do calculus/solving, and render step-by-step derivations directly in a Typst document.
+[`Repository`](https://github.com/sihooleebd/typCAS) ·
+[`Complete Guide`](https://github.com/sihooleebd/typCAS/blob/main/docs/COMPLETE_GUIDE.md) ·
+[`Function Reference`](https://github.com/sihooleebd/typCAS/blob/main/docs/functions.md) ·
+[`Contributing`](https://github.com/sihooleebd/typCAS/blob/main/CONTRIBUTING.md) ·
+[`Changelog`](https://github.com/sihooleebd/typCAS/blob/main/docs/CHANGELOG.md)
+
+---
+
+## Documentation
+
+- [Complete Guide](https://github.com/sihooleebd/typCAS/blob/main/docs/COMPLETE_GUIDE.md) for full API and internals documentation.
+- [Function Reference](https://github.com/sihooleebd/typCAS/blob/main/docs/functions.md) for signatures and usage examples of all public and parser-level functions.
+- [Changelog](https://github.com/sihooleebd/typCAS/blob/main/docs/CHANGELOG.md) for release history and full-refactor rationale.
+
+## Contributing
+
+- [Contributing Guide](https://github.com/sihooleebd/typCAS/blob/main/CONTRIBUTING.md) is the binding contributor policy for philosophy, invariants, and merge gates.
 
 ## Quick Start
 
-Import the library:
-
 ```typst
-#import "@preview/typcas:0.1.0":*
+#import "@preview/typcas:0.2.0": *
+
+#let r = cas.simplify("sin(x)^2 + cos(x)^2")
+
+#if cas.ok(r) [
+  $ #cas.display(cas.expr-of(r)) $
+]
 ```
 
-Parse and simplify:
+Optional local convenience imports (in this repo):
 
 ```typst
-#let expr = cas-parse("sin(x)^2 + cos(x)^2 + (x + 1)/(x + 1)")
-#let out = simplify(expr)
-$ #cas-display(out) $  // 2
+#import "translators/translation.typ": *
+// v1-style function aliases mapped to v2 cas.* API
 ```
 
-Differentiate with assumptions:
+## Core API
+
+### Task-First Operations (Primary)
 
 ```typst
-#let a = assume("x", real: true, positive: true)
-#let d = diff(cas-parse("sqrt(x^2)"), "x", assumptions: a)
-$ #cas-display(d) $  // 1
+#let s = cas.simplify(input, expand: false, allow-domain-sensitive: false, detail: 0, depth: none)
+#let d = cas.diff(input, "x", order: 1, detail: 0, depth: none)
+#let i = cas.integrate(input, "x", definite: none, detail: 0, depth: none)
+#let id = cas.implicit-diff(input, "x", "y")
+#let z = cas.solve(input, rhs: 0, var: "x", detail: 0, depth: none)
+#let f = cas.factor(input, var: "x")
+#let l = cas.limit(input, "x", to)
+#let t = cas.taylor(input, "x", x0, order)
+#let v = cas.eval(input, bindings: (x: 2))
+#let dm = cas.domain(input, "x")
+#let tr = cas.trace(input, "diff", var: "x", depth: none, detail: 2)
 ```
 
-Integrate:
+### Utility Function Library (Additive)
+
+The registry now includes common numeric helpers through the same parse/eval/simplify pipeline:
+
+- `sign(u)` / alias `sgn(u)`
+- `floor(u)`, `ceil(u)`, `round(u)`, `trunc(u)`, `fracpart(u)`
+- `min(a, b, ...)`, `max(a, b, ...)`
+- `clamp(x, lo, hi)`
+
+Known function calls are arity-checked at parse time (for example `min(1)` and `clamp(1, 2)` now fail fast).
+
+### Context Pack (`cas.with`)
+
+Bind `assumptions` / `field` / `strict` once:
 
 ```typst
-#let i = integrate(cas-parse("sec^2 x + csc^2 x"), "x")
-$ #cas-display(i) $  // tan(x) - cot(x) + C
+#let cx = cas.with(assumptions: a, field: "real", strict: true)
+#let simplify = cx.simplify
+#let diff = cx.diff
+
+#let s = simplify("sin(x)^2 + cos(x)^2")
+#let d = diff("x^3 + 1", "x")
 ```
 
-Solve:
+### Result Extractors
+
+Structured results remain canonical; these helpers reduce boilerplate:
 
 ```typst
-#let sols = solve(cas-parse("x^2 - 4"), 0, "x")
-$ #sols.map(s => cas-display(s)).join(" or ") $  // 2 or -2
+#let ok = cas.ok(res)
+#let expr = cas.expr-of(res)
+#let value = cas.value-of(res)
+#let roots = cas.roots-of(res)        // expressions
+#let roots-meta = cas.roots-of(res, mode: "meta")
+#let steps = cas.steps-of(res)
+#let err = cas.error-message(res)
 ```
 
-## Main Features
-
-- Symbolic simplification with exact rational arithmetic.
-- Assumption-aware simplification (`real`, `positive`, `nonzero`, etc.).
-- Symbolic differentiation and integration.
-- Limits, Taylor series, and implicit differentiation.
-- Equation solving with polynomial metadata (`solve-meta`).
-- Partial fractions and polynomial long division.
-- Matrix operations (determinant, inverse, solve, eigenvalues/eigenvectors for 2x2).
-- Step-by-step tracing and rendering for simplify/diff/integrate/solve.
-
-## Step-by-Step Mode
-
-Generate and render derivation traces:
+Core operations can include steps in the same result with `detail > 0`:
 
 ```typst
-#let expr = cas-parse("(x^2 + 1)^3")
-#let steps = step-diff(expr, "x")
-#display-steps(expr, steps, operation: "diff", var: "x")
+#let r = cas.simplify("sin(x)^2 + cos(x)^2", detail: 2)
+// r.expr is simplified output, r.steps contains the trace tuple
+// r.diagnostics.identity-events contains ordered identity rule usage
 ```
 
-Supported step APIs:
+## Step-By-Step Tracing
 
-- `step-simplify(expr)`
-- `step-diff(expr, var)`
-- `step-integrate(expr, var)`
-- `step-solve(lhs, rhs, var)`
-- `display-steps(original, steps, operation: none, var: none, rhs: none)`
-
-## Assumptions
-
-Build assumptions with:
+Use dedicated helpers to avoid op-string arguments:
 
 ```typst
-#let a1 = assume("x", real: true)
-#let a2 = assume("x", positive: true)
-#let a = merge-assumptions(a1, a2)
+#let tr-s = cas.trace-simplify("sin(x)^2 + cos(x)^2", detail: 2)
+#let tr-d = cas.trace-diff("(x^2+1)^3", var: "x", detail: 3)
+#let tr-i = cas.trace-integrate("2x*cos(x^2)", var: "x", detail: 4)
+#let tr-z = cas.trace-solve("x^2-4", rhs: 0, var: "x", detail: 3)
+
+#if cas.ok(tr-i) [
+  #cas.render-steps("2x*cos(x^2)", tr-i, operation: "integrate", var: "x")
+]
 ```
 
-Then pass to APIs that support `assumptions:` (notably `simplify`, `diff`, `diff-n`, `integrate`, `definite-integral`, `taylor`, `solve`, `solve-meta`).
+Generic endpoint remains available:
 
-## Public API Snapshot
+```typst
+#let tr = cas.trace("2x*cos(x^2)", "integrate", var: "x", detail: 4)
+#if tr.ok [
+  #cas.render-steps("2x*cos(x^2)", tr, operation: "integrate", var: "x")
+]
+```
 
-Core:
+Depth is uniform across core-4:
 
-- `cas-parse(input)`
-- `cas-display(expr)`
-- `cas-equation(lhs, rhs)`
+- `depth: none` => full recursion
+- `depth: 1` => top-level transform only
+- `depth: n` => recurse up to `n - 1` child levels
 
-Algebra:
+Numeric detail levels:
 
-- `simplify(expr, expand: false, assumptions: none, allow-domain-sensitive: false)`
-- `expand(expr)`
-- `eval-expr(expr, bindings)`
-- `substitute(expr, var, repl)`
+- `detail: 0` => no steps (core-op default)
+- `detail: 1` => concise, shallow (`depth: 1`)
+- `detail: 2` => concise, medium (`depth: 2`) (trace default)
+- `detail: 3` => pedagogical, deeper (`depth: 3`)
+- `detail: 4` => pedagogical, full recursion (`depth: none`)
 
-Calculus:
+If both `detail` and `depth` are passed, explicit `depth` wins.
 
-- `diff(expr, var, assumptions: none)`
-- `diff-n(expr, var, n, assumptions: none)`
-- `integrate(expr, var, assumptions: none)`
-- `definite-integral(expr, var, a, b, assumptions: none)`
-- `taylor(expr, var, x0, n, assumptions: none)`
-- `limit(expr, var, to)`
-- `implicit-diff(expr, x, y)`
+Integration traces include explicit u-sub narration when selected:
 
-Solving:
+- `u = ...`
+- `du = ...`
+- transformed integral
+- primitive in `u`
+- back-substitution
 
-- `solve(lhs, rhs, var, assumptions: none)`
-- `solve-meta(lhs, rhs, var, assumptions: none)`
-- `factor(expr, var)`
-- `poly-div(p, d, var)`
-- `partial-fractions(expr, var)`
-- `solve-linear-system(equations, vars)`
-- `solve-nonlinear-system(equations, vars, initial, ...)`
+### Advanced: Builder Query Object
 
-Matrices:
+Builder is still fully supported:
 
-- `mat-add`, `mat-sub`, `mat-scale`, `mat-mul`, `mat-transpose`
-- `mat-det`, `mat-inv`, `mat-solve`, `mat-eigenvalues`, `mat-eigenvectors`
+```typst
+#let q = cas.expr("sin(x)^2 + cos(x)^2")
+#let r = (q.simplify)()
+```
+
+Typst note: builder members are dictionary function fields, so method calls require parentheses:
+`(q.simplify)(...)`, `(q.diff)("x")`, etc.
+
+### Step Style (Doc-Level)
+
+Use document-global style settings for colors/arrows/indentation:
+
+```typst
+#cas.set-step-style((
+  palette: (
+    transform: rgb("#0A9AA4"),
+    warn: rgb("#C27B00"),
+    error: rgb("#B4372F"),
+    meta: rgb("#2E6E77"),
+  ),
+  arrow: (main: "⇒", sub: "↦", meta: "⟹"),
+  indent-size: 1.25em,
+  branch: (
+    mode: "inline",
+    marker: "↳",
+  ),
+))
+```
+
+Read current style inside a `context` block with `cas.get-step-style()`.
+Use `branch.mode: "divider"` to opt into heavier branch separators.
+
+### Structured Result Contract
+
+Each operation returns:
+
+```typst
+(
+  ok: bool,
+  op: str,
+  field: "real" | "complex",
+  strict: bool,
+  expr: expr | none,
+  value: any | none,
+  roots: tuple | none,
+  steps: tuple | none,
+  restrictions: tuple,
+  satisfied: tuple,
+  conflicts: tuple,
+  residual: tuple,
+  variable-domains: dictionary,
+  warnings: tuple,
+  errors: tuple,
+  diagnostics: dictionary,
+)
+```
+
+## Assumptions & Domains
+
+```typst
+#let a1 = cas.assume("x", real: true, positive: true)
+#let a2 = cas.assume-domain("x", "(-inf,1) ∪ (1,inf)")
+#let a3 = cas.assume-string("x", "(0")
+#let a = cas.merge-assumptions(a1, a2, a3)
+```
+
+Domain strings support both classic interval notation and compact syntax such as:
+
+- `2)(2`
+- `2)[3,4](5`
+- `3)`
+- `(4`
+
+## Integration Constant `C` Policy
+
+- Bare `C` is reserved as the integration constant and canonicalized as `const("C")`.
+- If you need a regular variable, use `c` or `C_0`.
+- `sum/prod` index variable `C` is rejected by parser with a clear error.
+
+```typst
+#let c0 = cas.parse("C")
+$ #cas.display(c0) $ // italic C constant
+
+#let i = cas.integrate("x*exp(x)", "x")
+$ #cas.display(cas.expr-of(i)) $ // ... + C (C kept at tail)
+```
+
+## Namespaced Helpers
+
+- `cas.parse(...)`
+- `cas.display(expr)`
+- `cas.equation(lhs, rhs)`
+- `cas.parse-domain(...)`
+- `cas.display-domain("x", assumptions)`
+- `cas.poly-coeffs(expr, "x")`
+- `cas.coeffs-to-expr((a_0, a_1, ...), "x")`
+- `cas.poly-div(p, d, "x")`
+- `cas.partial-fractions(expr, "x")`
 
 ## Project Layout
 
-- `lib.typ`: public facade.
-- `src/truths/`: declarative rule tables (`function-registry`, `calculus-rules` shim, `identities`).
-- `src/core/`: shared walkers and integer helpers.
-- `src/calculus/`: `diff`, `integrate`, advanced calculus ops.
-- `src/solve/`: solver engine.
-- `src/parse/`: parser engine.
-- `src/steps/`: step model, renderer, trace engine.
-
-Top-level `src/*.typ` files for `calculus`, `solve`, `parse`, `steps`, and `identities` are stable facades over these modular engines.
-
-## Adding a Function (Truths-Only)
-
-To add a new named function, edit only `src/truths/function-registry.typ`.
-
-Required checklist for a new registry entry:
-
-1. `name`, `aliases`, and `arity`.
-2. `parse` flags:
-   - `allow-implicit`
-   - `allow-power-prefix`
-3. `display.render` closure.
-4. `eval` closure with domain guards (return `none` for invalid real-domain inputs).
-5. `calculus` block:
-   - unary functions: provide `diff`, optional `integ`, `diff-step`, optional `domain-note`
-   - non-unary functions: set calculus fields to `none` (unary calculus only in current engine)
-
-Notes:
-
-- Parser, display, and numeric eval auto-discover functions from the registry.
-- `src/truths/calculus-rules.typ` is a compatibility shim derived from the registry.
-- Algebraic identities remain separate: add optional simplification identities in `src/truths/identities.typ`.
-- Structural operators/functions (`log(base,arg)`, `sqrt`, `root`, `frac`) still have dedicated parser/eval handling.
-
-## Notes
-
-- Variable name `i` is reserved for imaginary-unit support, so do not use `"i"` as a free variable name.
-- This project is under active development; behavior can evolve as rules/engines improve.
+- `src/`: active v2 implementation surface.
+- `archive/v1/`: archived pre-v2 codebase and examples, with standalone `archive/v1/typst.toml` + `archive/v1/lib.typ`.
+- `translators/translation.typ`: v1->v2 migration alias layer (migration-only).
+- [`docs/COMPLETE_GUIDE.md`](https://github.com/sihooleebd/typCAS/blob/main/docs/COMPLETE_GUIDE.md): comprehensive end-to-end guide (API + architecture).
 
 ## Local Validation
 
-Compile the included suites:
-
 ```bash
 typst compile examples/test.typ examples/out/typcas-test.pdf --root .
-typst compile examples/test_new.typ examples/out/typcas-test-new.pdf --root .
-typst compile examples/cas_test_suite.typ examples/out/typcas-suite.pdf --root .
-typst compile examples/regression_check.typ examples/out/typcas-regression.pdf --root .
 ```
-
-## License
-
-MIT. See `LICENSE`.
