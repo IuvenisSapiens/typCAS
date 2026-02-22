@@ -2,7 +2,7 @@
 
 All notable changes to `typcas` are documented in this file.
 
-Historical v1 changelog: <https://github.com/sihooleebd/typCAS/blob/main/archive/v1/CHANGELOG.md>.
+Historical v1 changelog: <https://github.com/sihooleebd/typCAS/blob/master/archive/v1/CHANGELOG.md>.
 
 ## [0.2.0]
 
