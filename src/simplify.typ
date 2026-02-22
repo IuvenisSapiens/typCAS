@@ -667,6 +667,9 @@
     let n = _simplify-once(expr.num)
     let d = _simplify-once(expr.den)
 
+    // Preserve 0/0 as an indeterminate form. This is required for
+    // limit logic (L'Hospital) and avoids unsound simplification.
+    if _is-zero(n) and _is-zero(d) { return cdiv(n, d) }
     if _is-zero(n) { return num(0) }
     if _is-one(d) { return n }
     if expr-eq(n, d) { return num(1) }

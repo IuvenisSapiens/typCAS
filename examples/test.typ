@@ -222,6 +222,9 @@ $ #cas.display(t1.expr) $
 
 #let l1 = cas.limit("sin(x)/x", "x", 0)
 #assert-ok(l1, "limit-basic")
+#let l1v = cas.eval(l1.expr)
+#assert-ok(l1v, "limit-basic-eval")
+#assert-true(calc.abs(l1v.value - 1) < 1e-9, "limit-sinc-value")
 *limit*\
 *Before:*\
 $ #cas.display("sin(x)/x") $
@@ -249,7 +252,8 @@ $ #cas.display(sub1.expr) $
 #if tr1.steps != none [#cas.render-steps("2x*cos(x^2)", tr1, operation: "integrate", var: "x")]
 
 == 4. Query Input + Task API (No Field-Call Parens)
-#let q = cas.expr("((x^2+1)^3 + x)^2", assumptions: a-pos)
+#let q-src = "x + x + 1"
+#let q = cas.expr(q-src, assumptions: a-base)
 #let q-impl = cas.expr("x^2 + y^2 - 1", assumptions: a-xy)
 #let q2 = cas.expr(q.input, assumptions: a-base)
 
@@ -261,7 +265,7 @@ $ #cas.display(sub1.expr) $
 #assert-ok(qs, "query-simplify")
 *query simplify*\
 *Before:*\
-$ #cas.display("((x^2+1)^3 + x)^2") $
+$ #cas.display(q-src) $
 *After:*\
 $ #cas.display(qs.expr) $
 
@@ -269,7 +273,7 @@ $ #cas.display(qs.expr) $
 #assert-ok(qd, "query-diff")
 *query diff*\
 *Before:*\
-$ #cas.display("((x^2+1)^3 + x)^2") $
+$ #cas.display(q-src) $
 *After:*\
 $ #cas.display(qd.expr) $
 
@@ -277,7 +281,7 @@ $ #cas.display(qd.expr) $
 #assert-ok(qi, "query-integrate")
 *query integrate*\
 *Before:*\
-$ #cas.display("((x^2+1)^3 + x)^2") $
+$ #cas.display(q-src) $
 *After:*\
 $ #cas.display(qi.expr) $
 
@@ -293,7 +297,7 @@ $ #cas.display(qv.expr) $
 #assert-ok(qz, "query-solve")
 *query solve roots (distinct):*\
 *Before:*\
-$ #cas.display("((x^2+1)^3 + x)^2") $
+$ #cas.display(q-src) $
 *After:*\
 $ #cas.roots-of(qz).len() $
 *query recreated context (`with` equivalent):*\

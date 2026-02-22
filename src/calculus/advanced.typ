@@ -73,18 +73,32 @@
 #let limit(expr, v, a) = {
   let s = simplify(expr)
   let direct = simplify(substitute(s, v, a))
-  if not _contains-var(direct, v) { return direct }
 
-  if is-type(direct, "div") {
-    let n0 = simplify(substitute(direct.num, v, a))
-    let d0 = simplify(substitute(direct.den, v, a))
-    if is-type(n0, "num") and is-type(d0, "num") and n0.val == 0 and d0.val == 0 {
-      let n1 = simplify(diff(direct.num, v))
-      let d1 = simplify(diff(direct.den, v))
-      let l1 = simplify(substitute(cdiv(n1, d1), v, a))
-      if not _contains-var(l1, v) { return l1 }
+  // Handle quotient limits directly from the original symbolic quotient
+  // so L'Hospital differentiates pre-substitution numerator/denominator.
+  if is-type(s, "div") {
+    let cur-num = s.num
+    let cur-den = s.den
+    let step = 0
+    while step < 6 {
+      let n0 = simplify(substitute(cur-num, v, a))
+      let d0 = simplify(substitute(cur-den, v, a))
+      if is-type(n0, "num") and is-type(d0, "num") {
+        if d0.val != 0 {
+          return simplify(cdiv(n0, d0))
+        }
+        if n0.val == 0 and d0.val == 0 {
+          cur-num = simplify(diff(cur-num, v))
+          cur-den = simplify(diff(cur-den, v))
+          step += 1
+          continue
+        }
+      }
+      break
     }
   }
+
+  if not _contains-var(direct, v) { return direct }
 
   // Numeric symmetric fallback.
   let av = if is-type(a, "num") { a.val + 0.0 } else { 0.0 }
