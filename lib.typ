@@ -2,7 +2,7 @@
 // typcas v2 — Task-Centric CAS for Typst
 // =========================================================================
 // Public surface:
-//   #import "@preview/typcas:0.2.0": *
+//   #import "@preview/typcas:0.2.1": *
 //   #let q = cas.expr("sin(x)^2 + cos(x)^2")
 //   #let r = q.simplify()
 //   $ #cas.display(r.expr) $

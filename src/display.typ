@@ -65,6 +65,16 @@
   out
 }
 
+#let _rel-symbol(rel) = {
+  if rel == "!=" { return sym.eq.not }
+  if rel == ">=" { return sym.gt.eq }
+  if rel == "<=" { return sym.lt.eq }
+  if rel == ">" { return ">" }
+  if rel == "<" { return "<" }
+  if rel == "=" or rel == "==" { return "=" }
+  rel
+}
+
 #let cas-display(expr) = {
   let wrap = (child, parent-level) => {
     let rendered = cas-display(child)
@@ -192,7 +202,16 @@
   }
 
   if is-type(expr, "limit") {
-    return $lim_(#display-symbol(expr.var) arrow.r #cas-display(expr.to)) #cas-display(expr.expr)$
+    let side = expr.at("side", default: "two-sided")
+    let to = cas-display(expr.to)
+    let to-side = if side == "left" {
+      $#to^(-)$
+    } else if side == "right" {
+      $#to^(+)$
+    } else {
+      to
+    }
+    return $lim_(#display-symbol(expr.var) arrow.r #to-side) #cas-display(expr.expr)$
   }
 
   if is-type(expr, "piecewise") {
@@ -201,10 +220,24 @@
       if cond == none {
         entries.push($#cas-display(body) & "otherwise"$)
       } else {
-        entries.push($#cas-display(body) & "if" #cond$)
+        let shown = if is-expr(cond) { cas-display(cond) } else { cond }
+        entries.push($#cas-display(body) & "if" #shown$)
       }
     }
     return math.cases(..entries)
+  }
+
+  if is-type(expr, "cond-rel") {
+    return $#cas-display(expr.lhs) #_rel-symbol(expr.rel) #cas-display(expr.rhs)$
+  }
+
+  if is-type(expr, "cond-and") {
+    if expr.args.len() == 0 { return $\"true\"$ }
+    let out = cas-display(expr.args.at(0))
+    for i in range(1, expr.args.len()) {
+      out = $#out and #cas-display(expr.args.at(i))$
+    }
+    return out
   }
 
   if is-type(expr, "complex") {

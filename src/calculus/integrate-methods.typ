@@ -10,6 +10,7 @@
 #import "../simplify.typ": simplify
 #import "../core/expr-walk.typ": contains-var as _contains-var-core
 #import "../truths/function-registry.typ": fn-spec, fn-square-power-integral-spec
+#import "../poly.typ": partial-fractions as poly-partial-fractions
 #import "diff.typ": diff
 
 #let _contains-var(expr, v) = _contains-var-core(expr, v)
@@ -161,6 +162,50 @@
   builder(v)
 }
 
+#let _direct-primitive-on-var(func-expr, v) = {
+  if not _is-unary-on-var(func-expr, v) { return none }
+  let spec = fn-spec(func-expr.name)
+  if spec == none { return none }
+  let hints = spec.at("hints", default: none)
+  if hints != none {
+    let direct = hints.at("direct-integral-var", default: none)
+    if direct != none { return direct(v) }
+  }
+  if spec.calculus != none and spec.calculus.integ != none {
+    return (spec.calculus.integ)(cvar(v))
+  }
+  none
+}
+
+#let _affine-ax-plus-b(expr, v) = {
+  if is-type(expr, "num") { return (a: 0.0, b: expr.val + 0.0) }
+  if is-type(expr, "var") and expr.name == v { return (a: 1.0, b: 0.0) }
+  if is-type(expr, "neg") {
+    let p = _affine-ax-plus-b(expr.arg, v)
+    if p == none { return none }
+    return (a: -p.a, b: -p.b)
+  }
+  if is-type(expr, "add") {
+    let p = _affine-ax-plus-b(expr.args.at(0), v)
+    let q = _affine-ax-plus-b(expr.args.at(1), v)
+    if p == none or q == none { return none }
+    return (a: p.a + q.a, b: p.b + q.b)
+  }
+  if is-type(expr, "mul") {
+    if is-type(expr.args.at(0), "num") {
+      let p = _affine-ax-plus-b(expr.args.at(1), v)
+      if p == none { return none }
+      return (a: expr.args.at(0).val * p.a, b: expr.args.at(0).val * p.b)
+    }
+    if is-type(expr.args.at(1), "num") {
+      let p = _affine-ax-plus-b(expr.args.at(0), v)
+      if p == none { return none }
+      return (a: expr.args.at(1).val * p.a, b: expr.args.at(1).val * p.b)
+    }
+  }
+  none
+}
+
 #let _by-parts-result(expr, v) = {
   if not is-type(expr, "mul") { return none }
   let a = expr.args.at(0)
@@ -176,48 +221,39 @@
     if hinted != none { return hinted }
   }
 
+  let lin-a = _affine-ax-plus-b(a, v)
+  if lin-a != none and calc.abs(lin-a.a) > 0 and _is-unary-on-var(b, v) {
+    let hinted = _registry-by-parts-x(b, v)
+    if hinted != none {
+      let lead = if lin-a.a == 1 { hinted } else { mul(num(lin-a.a), hinted) }
+      if lin-a.b == 0 { return simplify(lead) }
+      let direct = _direct-primitive-on-var(b, v)
+      if direct != none {
+        return simplify(add(lead, mul(num(lin-a.b), direct)))
+      }
+    }
+  }
+
+  let lin-b = _affine-ax-plus-b(b, v)
+  if lin-b != none and calc.abs(lin-b.a) > 0 and _is-unary-on-var(a, v) {
+    let hinted = _registry-by-parts-x(a, v)
+    if hinted != none {
+      let lead = if lin-b.a == 1 { hinted } else { mul(num(lin-b.a), hinted) }
+      if lin-b.b == 0 { return simplify(lead) }
+      let direct = _direct-primitive-on-var(a, v)
+      if direct != none {
+        return simplify(add(lead, mul(num(lin-b.b), direct)))
+      }
+    }
+  }
+
   none
 }
 
 #let _partial-fractions-result(expr, v) = {
   if not is-type(expr, "div") { return none }
-  if not is-type(expr.num, "num") or expr.num.val != 1 { return none }
-
-  // 1/(x^2 - 1) -> 1/2 ln|(x-1)/(x+1)|
-  let is-x2-minus-1 = (
-    is-type(expr.den, "add")
-      and _is-polynomial-power(expr.den.args.at(0), v)
-      and expr.den.args.at(0).exp.val == 2
-      and is-type(expr.den.args.at(1), "num")
-      and expr.den.args.at(1).val == -1
-  )
-  if is-x2-minus-1 {
-    let x = cvar(v)
-    return mul(cdiv(num(1), num(2)), ln-of(abs-of(cdiv(sub(x, num(1)), add(x, num(1))))))
-  }
-
-  // 1/(x^2 + 4x + 3) -> 1/2 ln|(x+1)/(x+3)|
-  if is-type(expr.den, "add") {
-    let t1 = expr.den.args.at(0)
-    let t2 = expr.den.args.at(1)
-    let is-x2-plus-4x-plus-3 = (
-      is-type(t1, "add")
-        and _is-polynomial-power(t1.args.at(0), v)
-        and t1.args.at(0).exp.val == 2
-        and is-type(t1.args.at(1), "mul")
-        and is-type(t1.args.at(1).args.at(0), "num")
-        and t1.args.at(1).args.at(0).val == 4
-        and is-type(t1.args.at(1).args.at(1), "var")
-        and t1.args.at(1).args.at(1).name == v
-        and is-type(t2, "num")
-        and t2.val == 3
-    )
-    if is-x2-plus-4x-plus-3 {
-      let x = cvar(v)
-      return mul(cdiv(num(1), num(2)), ln-of(abs-of(cdiv(add(x, num(1)), add(x, num(3))))))
-    }
-  }
-
+  let decomposed = simplify(poly-partial-fractions(expr, v))
+  if not expr-eq(decomposed, expr) { return decomposed }
   none
 }
 

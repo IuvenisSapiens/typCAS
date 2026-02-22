@@ -3,7 +3,7 @@
 // =========================================================================
 
 #import "../core/ast.typ": *
-#import "../core/runtime.typ": cas-parse, cas-display, cas-equation, simplify, simplify-meta-core, expand as expand-expr, eval-expr, substitute, diff, diff-n, integrate, definite-integral, taylor, limit, implicit-diff, solve, solve-meta, factor, assume, assume-domain, assume-string, merge-assumptions, apply-assumptions, parse-domain, variable-domain, display-variable-domain, collect-structural-restrictions, collect-function-restrictions, merge-restrictions, filter-restrictions-by-assumptions, step-diff, step-integrate, step-simplify, step-solve, display-steps, normalize-detail, detail-mode, resolve-detail-depth, mat-add, mat-sub, mat-scale, mat-mul, mat-transpose, mat-det, mat-inv, mat-solve, mat-eigenvalues, mat-eigenvectors, solve-linear-system, solve-nonlinear-system, poly-coeffs, coeffs-to-expr, poly-div, partial-fractions
+#import "../core/runtime.typ": cas-parse, cas-display, cas-equation, simplify, simplify-meta-core, expand as expand-expr, eval-expr, substitute, diff, diff-n, integrate, definite-integral, taylor, limit, implicit-diff, solve, solve-meta, factor, assume, assume-domain, assume-string, merge-assumptions, apply-assumptions, parse-domain, variable-domain, display-variable-domain, collect-structural-restrictions, collect-function-restrictions, merge-restrictions, filter-restrictions-by-assumptions, build-restriction-panel, step-diff, step-integrate, step-simplify, step-solve, display-steps, normalize-detail, detail-mode, resolve-detail-depth, mat-add, mat-sub, mat-scale, mat-mul, mat-transpose, mat-det, mat-inv, mat-solve, mat-eigenvalues, mat-eigenvectors, solve-linear-system, solve-nonlinear-system, poly-coeffs, coeffs-to-expr, poly-div, partial-fractions
 #import "result.typ": mk-result, mk-error
 
 #let _normalize-field(field) = if field == "complex" { "complex" } else { "real" }
@@ -47,6 +47,159 @@
 
 #let _is-expr-node(x) = type(x) == dictionary and "type" in x
 
+#let _is-inf-token(s) = {
+  let t = s.trim()
+  t == "inf" or t == "+inf" or t == "infinity" or t == "+infinity" or t == "∞" or t == "+∞"
+}
+
+#let _is-neg-inf-token(s) = {
+  let t = s.trim()
+  t == "-inf" or t == "-infinity" or t == "-∞"
+}
+
+#let _coerce-point(x) = {
+  if type(x) == int or type(x) == float { return num(x) }
+  if _is-expr-node(x) { return x }
+  cas-parse(x)
+}
+
+#let _parse-limit-target(to) = {
+  if type(to) == dictionary and to.at("type", default: none) == "limit-target" {
+    return (
+      type: "limit-target",
+      point: to.at("point", default: num(0)),
+      side: to.at("side", default: "two-sided"),
+      infinity: to.at("infinity", default: 0),
+    )
+  }
+
+  if type(to) == str {
+    let t = to.trim()
+    if _is-inf-token(t) {
+      return (type: "limit-target", point: const-expr("inf"), side: "two-sided", infinity: 1)
+    }
+    if _is-neg-inf-token(t) {
+      return (type: "limit-target", point: neg(const-expr("inf")), side: "two-sided", infinity: -1)
+    }
+    if t.len() >= 2 {
+      let last = t.slice(t.len() - 1, t.len())
+      if last == "+" or last == "-" {
+        let core = t.slice(0, t.len() - 1).trim()
+        if core != "" {
+          return (
+            type: "limit-target",
+            point: _coerce-point(core),
+            side: if last == "+" { "right" } else { "left" },
+            infinity: 0,
+          )
+        }
+      }
+    }
+    return (type: "limit-target", point: _coerce-point(t), side: "two-sided", infinity: 0)
+  }
+
+  if _is-expr-node(to) and (is-type(to, "var") or is-type(to, "const")) and (to.name == "inf" or to.name == "infinity") {
+    return (type: "limit-target", point: const-expr("inf"), side: "two-sided", infinity: 1)
+  }
+  if is-type(to, "neg") and _is-expr-node(to.arg) and (is-type(to.arg, "var") or is-type(to.arg, "const")) and (to.arg.name == "inf" or to.arg.name == "infinity") {
+    return (type: "limit-target", point: neg(const-expr("inf")), side: "two-sided", infinity: -1)
+  }
+
+  (type: "limit-target", point: _coerce-point(to), side: "two-sided", infinity: 0)
+}
+
+#let _nonsmooth-boundary-hits(expr, var) = {
+  if not _is-expr-node(expr) { return () }
+
+  let out = ()
+  if is-type(expr, "func") and expr.name == ("diff_" + var) {
+    let args = func-args(expr)
+    if args.len() == 1 and is-type(args.at(0), "func") {
+      let n = args.at(0).name
+      if n == "abs" or n == "sign" or n == "min" or n == "max" or n == "clamp" {
+        out.push((fn: n, expr: args.at(0)))
+      }
+    }
+  }
+
+  if is-type(expr, "neg") {
+    return out + _nonsmooth-boundary-hits(expr.arg, var)
+  }
+  if is-type(expr, "add") or is-type(expr, "mul") {
+    return out + _nonsmooth-boundary-hits(expr.args.at(0), var) + _nonsmooth-boundary-hits(expr.args.at(1), var)
+  }
+  if is-type(expr, "pow") {
+    return out + _nonsmooth-boundary-hits(expr.base, var) + _nonsmooth-boundary-hits(expr.exp, var)
+  }
+  if is-type(expr, "div") {
+    return out + _nonsmooth-boundary-hits(expr.num, var) + _nonsmooth-boundary-hits(expr.den, var)
+  }
+  if is-type(expr, "func") {
+    let all = out
+    for a in func-args(expr) { all += _nonsmooth-boundary-hits(a, var) }
+    return all
+  }
+  if is-type(expr, "log") {
+    return out + _nonsmooth-boundary-hits(expr.base, var) + _nonsmooth-boundary-hits(expr.arg, var)
+  }
+  if is-type(expr, "sum") or is-type(expr, "prod") {
+    return out + _nonsmooth-boundary-hits(expr.body, var) + _nonsmooth-boundary-hits(expr.from, var) + _nonsmooth-boundary-hits(expr.to, var)
+  }
+  if is-type(expr, "integral") {
+    return out + _nonsmooth-boundary-hits(expr.expr, var)
+  }
+  if is-type(expr, "def-integral") {
+    return out + _nonsmooth-boundary-hits(expr.expr, var) + _nonsmooth-boundary-hits(expr.lo, var) + _nonsmooth-boundary-hits(expr.hi, var)
+  }
+  if is-type(expr, "matrix") {
+    let all = out
+    for row in expr.rows {
+      for item in row { all += _nonsmooth-boundary-hits(item, var) }
+    }
+    return all
+  }
+  if is-type(expr, "piecewise") {
+    let all = out
+    for c in expr.cases {
+      all += _nonsmooth-boundary-hits(c.at(0), var)
+      let cond = c.at(1)
+      if _is-expr-node(cond) { all += _nonsmooth-boundary-hits(cond, var) }
+    }
+    return all
+  }
+  if is-type(expr, "cond-rel") {
+    return out + _nonsmooth-boundary-hits(expr.lhs, var) + _nonsmooth-boundary-hits(expr.rhs, var)
+  }
+  if is-type(expr, "cond-and") {
+    let all = out
+    for c in expr.args { all += _nonsmooth-boundary-hits(c, var) }
+    return all
+  }
+  if is-type(expr, "complex") {
+    return out + _nonsmooth-boundary-hits(expr.re, var) + _nonsmooth-boundary-hits(expr.im, var)
+  }
+
+  out
+}
+
+#let _nonsmooth-boundary-warnings(expr, var) = {
+  let hits = _nonsmooth-boundary-hits(expr, var)
+  if hits.len() == 0 { return () }
+  let out = ()
+  let seen = (:)
+  for h in hits {
+    let key = h.fn + ":" + repr(h.expr)
+    if key in seen { continue }
+    seen.insert(key, true)
+    out.push(mk-error(
+      "nonsmooth-boundary",
+      "Derivative includes symbolic fallback at a non-smooth boundary.",
+      details: (function: h.fn, boundary: repr(h.expr)),
+    ))
+  }
+  out
+}
+
 #let _raw-restrictions(src, stage) = {
   if not _is-expr-node(src) { return () }
   merge-restrictions(
@@ -71,7 +224,7 @@
   filter-restrictions-by-assumptions(merged, assumptions)
 }
 
-#let _strict-domain-guard(op, field, strict, meta, expr: none, value: none, roots: none, steps: none, diagnostics: (:)) = {
+#let _strict-domain-guard(op, field, strict, meta, expr: none, value: none, roots: none, steps: none, warnings: (), diagnostics: (:)) = {
   if strict and meta.conflicts.len() > 0 {
     return mk-result(
       op,
@@ -87,6 +240,7 @@
       conflicts: meta.conflicts,
       residual: meta.residual,
       variable-domains: meta.variable-domains,
+      warnings: warnings,
       errors: (mk-error("domain-conflict", "Domain restrictions conflict with current assumptions.", details: meta.conflicts),),
       diagnostics: diagnostics,
     )
@@ -106,6 +260,7 @@
     conflicts: meta.conflicts,
     residual: meta.residual,
     variable-domains: meta.variable-domains,
+    warnings: warnings,
     diagnostics: diagnostics,
   )
 }
@@ -124,6 +279,7 @@
 
 #let _query(input, assumptions: none, field: "real", strict: true) = {
   let field = _normalize-field(field)
+  let _panel = (src, stage) => build-restriction-panel(src, stage: stage, assumptions: assumptions)
 
   let parse = () => cas-parse(input)
   let _no-expr-chain = op => mk-result(
@@ -245,6 +401,7 @@
           identity-events: meta.identities-used,
           identity-count: meta.identity-count,
           identity-unique: meta.identity-unique,
+          restriction-panel: _panel(work, "defined"),
         ),
       )
       if not base.ok { return chainify(base) }
@@ -274,15 +431,18 @@
       let raw = if order <= 1 { diff(src, var) } else { diff-n(src, var, order) }
       let out = _with-assumptions(raw, assumptions)
       let meta = _meta-restrictions(src, "diff", assumptions)
+      let ns-warnings = _nonsmooth-boundary-warnings(out, var)
       let base = _strict-domain-guard(
         "diff",
         field,
         strict,
         meta,
         expr: out,
+        warnings: ns-warnings,
         diagnostics: (
           var: var,
           order: order,
+          restriction-panel: _panel(src, "diff"),
         ),
       )
       if not base.ok { return chainify(base) }
@@ -325,6 +485,7 @@
         diagnostics: (
           var: var,
           definite: definite,
+          restriction-panel: _panel(src, "integ"),
         ),
       )
       if not base.ok { return chainify(base) }
@@ -364,6 +525,7 @@
         diagnostics: (
           x: x,
           y: y,
+          restriction-panel: _panel(src, "diff"),
         ),
       ))
     },
@@ -394,6 +556,7 @@
           rhs: cas-parse(rhs),
           solutions: exprs,
           solve-meta: meta-solve,
+          restriction-panel: _panel(lhs, "defined"),
         ),
       )
       if not base.ok { return chainify(base) }
@@ -417,7 +580,14 @@
       let src = parse()
       let out = factor(src, var)
       let meta = _meta-restrictions(src, "defined", assumptions)
-      chainify(_strict-domain-guard("factor", field, strict, meta, expr: out, diagnostics: (var: var)))
+      chainify(_strict-domain-guard(
+        "factor",
+        field,
+        strict,
+        meta,
+        expr: out,
+        diagnostics: (var: var, restriction-panel: _panel(src, "defined")),
+      ))
     },
 
     limit: (var, to) => {
@@ -425,9 +595,23 @@
         return chainify(mk-result("limit", field, strict, ok: false, errors: (mk-error("invalid-var", "Limit variable must be a string."),)))
       }
       let src = parse()
-      let out = limit(src, var, cas-parse(to))
+      let target = _parse-limit-target(to)
+      let out = limit(src, var, target)
       let meta = _meta-restrictions(src, "defined", assumptions)
-      chainify(_strict-domain-guard("limit", field, strict, meta, expr: out, diagnostics: (var: var, to: cas-parse(to))))
+      chainify(_strict-domain-guard(
+        "limit",
+        field,
+        strict,
+        meta,
+        expr: out,
+        diagnostics: (
+          var: var,
+          to: target.point,
+          side: target.side,
+          infinity: target.infinity,
+          restriction-panel: _panel(src, "defined"),
+        ),
+      ))
     },
 
     taylor: (var, x0, order) => {
@@ -437,14 +621,28 @@
       let src = parse()
       let out = taylor(src, var, cas-parse(x0), order)
       let meta = _meta-restrictions(src, "defined", assumptions)
-      chainify(_strict-domain-guard("taylor", field, strict, meta, expr: out, diagnostics: (var: var, x0: cas-parse(x0), order: order)))
+      chainify(_strict-domain-guard(
+        "taylor",
+        field,
+        strict,
+        meta,
+        expr: out,
+        diagnostics: (var: var, x0: cas-parse(x0), order: order, restriction-panel: _panel(src, "defined")),
+      ))
     },
 
     eval: (bindings: (:)) => {
       let src = parse()
       let value = eval-expr(src, bindings)
       let meta = _meta-restrictions(src, "defined", assumptions)
-      chainify(_strict-domain-guard("eval", field, strict, meta, value: value, diagnostics: (bindings: bindings)))
+      chainify(_strict-domain-guard(
+        "eval",
+        field,
+        strict,
+        meta,
+        value: value,
+        diagnostics: (bindings: bindings, restriction-panel: _panel(src, "defined")),
+      ))
     },
 
     substitute: (var, repl) => {
@@ -454,7 +652,14 @@
       let src = parse()
       let out = substitute(src, var, cas-parse(repl))
       let meta = _meta-restrictions(src, "defined", assumptions)
-      chainify(_strict-domain-guard("substitute", field, strict, meta, expr: out, diagnostics: (var: var)))
+      chainify(_strict-domain-guard(
+        "substitute",
+        field,
+        strict,
+        meta,
+        expr: out,
+        diagnostics: (var: var, restriction-panel: _panel(src, "defined")),
+      ))
     },
 
     trace: (op, var: "x", rhs: 0, depth: none, detail: 2) => {

@@ -142,6 +142,30 @@
 
 #let piecewise(cases) = (type: "piecewise", cases: cases)
 
+// --- Condition constructors (for piecewise branches) ---
+
+#let cond-rel(lhs, rel, rhs) = (
+  type: "cond-rel",
+  lhs: _coerce(lhs),
+  rel: rel,
+  rhs: _coerce(rhs),
+)
+
+#let cond-and(..conds) = {
+  let xs = ()
+  for c in conds.pos() {
+    if c == none { continue }
+    if is-type(c, "cond-and") {
+      for inner in c.args { xs.push(inner) }
+    } else {
+      xs.push(c)
+    }
+  }
+  if xs.len() == 0 { return none }
+  if xs.len() == 1 { return xs.at(0) }
+  (type: "cond-and", args: xs)
+}
+
 // --- Canonical integration constant helpers ---
 
 /// True when expression is integration constant `C`.
@@ -269,6 +293,16 @@
         if is-expr(cond) { _normalize-int-constant(cond, bound-vars) } else { cond },
       )
     }))
+  }
+  if is-type(expr, "cond-rel") {
+    return cond-rel(
+      _normalize-int-constant(expr.lhs, bound-vars),
+      expr.rel,
+      _normalize-int-constant(expr.rhs, bound-vars),
+    )
+  }
+  if is-type(expr, "cond-and") {
+    return cond-and(..expr.args.map(c => _normalize-int-constant(c, bound-vars)))
   }
   if is-type(expr, "complex") {
     return (

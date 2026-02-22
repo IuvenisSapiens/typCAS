@@ -213,6 +213,14 @@
     }
     return out
   }
+  if is-type(expr, "cond-rel") {
+    return _vars-in-expr(expr.lhs) + _vars-in-expr(expr.rhs)
+  }
+  if is-type(expr, "cond-and") {
+    let out = ()
+    for c in expr.args { out += _vars-in-expr(c) }
+    return out
+  }
   if is-type(expr, "complex") { return _vars-in-expr(expr.re) + _vars-in-expr(expr.im) }
   ()
 }
@@ -637,6 +645,15 @@
     return out
   }
 
+  if is-type(expr, "cond-rel") {
+    return merge-restrictions(_collect-structural(expr.lhs), _collect-structural(expr.rhs))
+  }
+  if is-type(expr, "cond-and") {
+    let out = ()
+    for c in expr.args { out = merge-restrictions(out, _collect-structural(c)) }
+    return out
+  }
+
   if is-type(expr, "complex") {
     return merge-restrictions(_collect-structural(expr.re), _collect-structural(expr.im))
   }
@@ -734,6 +751,15 @@
     return out
   }
 
+  if is-type(expr, "cond-rel") {
+    return merge-restrictions(_collect-function(expr.lhs, stage), _collect-function(expr.rhs, stage))
+  }
+  if is-type(expr, "cond-and") {
+    let out = ()
+    for c in expr.args { out = merge-restrictions(out, _collect-function(c, stage)) }
+    return out
+  }
+
   if is-type(expr, "complex") {
     return merge-restrictions(_collect-function(expr.re, stage), _collect-function(expr.im, stage))
   }
@@ -758,4 +784,68 @@
   let body = _restriction-math(r)
   if r.note == none or r.note == "" { return body }
   [#body #h(0.35em) #text(size: 0.84em, fill: luma(105))[#r.note]]
+}
+
+/// Build compact restriction panel data for diagnostics and trace rendering.
+#let build-restriction-panel(expr, stage: "defined", assumptions: none) = {
+  let restrictions = merge-restrictions(
+    merge-restrictions(
+      collect-structural-restrictions(expr),
+      collect-function-restrictions(expr, stage: "defined"),
+    ),
+    collect-function-restrictions(expr, stage: stage),
+  )
+  let filtered = filter-restrictions-by-assumptions(restrictions, assumptions)
+
+  let rows = ()
+  for r in filtered.conflicts {
+    rows.push((
+      status: "conflict",
+      lhs: r.lhs,
+      rel: r.rel,
+      rhs: r.rhs,
+      source: r.source,
+      stage: r.stage,
+      note: r.note,
+      math: _restriction-math(r),
+    ))
+  }
+  for r in filtered.restrictions {
+    rows.push((
+      status: "active",
+      lhs: r.lhs,
+      rel: r.rel,
+      rhs: r.rhs,
+      source: r.source,
+      stage: r.stage,
+      note: r.note,
+      math: _restriction-math(r),
+    ))
+  }
+  for r in filtered.satisfied {
+    rows.push((
+      status: "satisfied",
+      lhs: r.lhs,
+      rel: r.rel,
+      rhs: r.rhs,
+      source: r.source,
+      stage: r.stage,
+      note: r.note,
+      math: _restriction-math(r),
+    ))
+  }
+
+  (
+    rows: rows,
+    counts: (
+      active: filtered.restrictions.len(),
+      satisfied: filtered.satisfied.len(),
+      conflicts: filtered.conflicts.len(),
+    ),
+    restrictions: filtered.restrictions,
+    satisfied: filtered.satisfied,
+    conflicts: filtered.conflicts,
+    residual: filtered.residual,
+    variable-domains: filtered.variable-domains,
+  )
 }

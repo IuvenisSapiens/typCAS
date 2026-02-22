@@ -1,4 +1,4 @@
-# typcas (v 0.2.0)
+# typcas (v 0.2.1)
 
 Task-centric CAS for Typst with Builder-style orchestration and structured results.
 
@@ -23,7 +23,7 @@ Task-centric CAS for Typst with Builder-style orchestration and structured resul
 ## Quick Start
 
 ```typst
-#import "@preview/typcas:0.2.0": *
+#import "@preview/typcas:0.2.1": *
 
 #let r = cas.simplify("sin(x)^2 + cos(x)^2")
 
@@ -55,6 +55,13 @@ Optional local convenience imports (in this repo):
 #let v = cas.eval(input, bindings: (x: 2))
 #let dm = cas.domain(input, "x")
 #let tr = cas.trace(input, "diff", var: "x", depth: none, detail: 2)
+```
+
+One-sided limits are supported with additive suffix notation:
+
+```typst
+#let r = cas.limit("sin(x)/x", "x", "0+")
+#let l = cas.limit("sin(x)/x", "x", "0-")
 ```
 
 ### Utility Function Library (Additive)
@@ -101,7 +108,10 @@ Core operations can include steps in the same result with `detail > 0`:
 #let r = cas.simplify("sin(x)^2 + cos(x)^2", detail: 2)
 // r.expr is simplified output, r.steps contains the trace tuple
 // r.diagnostics.identity-events contains ordered identity rule usage
+// r.diagnostics.restriction-panel contains compact restriction rows/status
 ```
+
+Non-smooth derivatives (`abs`, `sign`, `min/max`, `clamp`) now return piecewise-aware symbolic forms, and emit `warnings` when boundary branches remain symbolic.
 
 ## Step-By-Step Tracing
 
@@ -265,4 +275,7 @@ $ #cas.display(cas.expr-of(i)) $ // ... + C (C kept at tail)
 
 ```bash
 typst compile examples/test.typ examples/out/typcas-test.pdf --root .
+for probe in examples/probes/*.typ; do \
+  typst compile "$probe" "examples/out/$(basename "$probe" .typ).pdf" --root .; \
+done
 ```

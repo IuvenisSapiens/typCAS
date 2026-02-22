@@ -7,6 +7,16 @@
 #import "expr.typ": *
 #import "truths/function-registry.typ": fn-spec, fn-arity-ok
 
+#let _rel-holds(a, rel, b) = {
+  if rel == ">" { return a > b }
+  if rel == ">=" { return a >= b }
+  if rel == "<" { return a < b }
+  if rel == "<=" { return a <= b }
+  if rel == "!=" { return a != b }
+  if rel == "=" or rel == "==" { return a == b }
+  none
+}
+
 /// Evaluate an expression to a numeric value.
 ///
 /// `bindings` is a dictionary mapping variable names to numbers.
@@ -99,6 +109,44 @@
     let a = eval-expr(expr.arg, bindings)
     if b == none or a == none or b <= 0 or a <= 0 or b == 1 { return none }
     return calc.ln(a) / calc.ln(b)
+  }
+
+  if is-type(expr, "cond-rel") {
+    let lhs = eval-expr(expr.lhs, bindings)
+    let rhs = eval-expr(expr.rhs, bindings)
+    if lhs == none or rhs == none { return none }
+    return _rel-holds(lhs, expr.rel, rhs)
+  }
+
+  if is-type(expr, "cond-and") {
+    let all = true
+    for c in expr.args {
+      let v = eval-expr(c, bindings)
+      if v == none { return none }
+      if v == false { return false }
+      if v != true { return none }
+      all = all and v
+    }
+    return all
+  }
+
+  if is-type(expr, "piecewise") {
+    let unknown-hit = false
+    for (body, cond) in expr.cases {
+      if cond == none {
+        return eval-expr(body, bindings)
+      }
+      if not is-expr(cond) { continue }
+      let c = eval-expr(cond, bindings)
+      if c == true {
+        return eval-expr(body, bindings)
+      }
+      if c == none {
+        unknown-hit = true
+      }
+    }
+    if unknown-hit { return none }
+    return none
   }
 
 
@@ -214,6 +262,32 @@
       idx: expr.idx,
       from: substitute(expr.from, var-name, replacement),
       to: substitute(expr.to, var-name, replacement),
+    )
+  }
+  if is-type(expr, "piecewise") {
+    return piecewise(expr.cases.map(c => {
+      let cond = c.at(1)
+      (
+        substitute(c.at(0), var-name, replacement),
+        if is-expr(cond) { substitute(cond, var-name, replacement) } else { cond },
+      )
+    }))
+  }
+  if is-type(expr, "cond-rel") {
+    return cond-rel(
+      substitute(expr.lhs, var-name, replacement),
+      expr.rel,
+      substitute(expr.rhs, var-name, replacement),
+    )
+  }
+  if is-type(expr, "cond-and") {
+    return cond-and(..expr.args.map(c => substitute(c, var-name, replacement)))
+  }
+  if is-type(expr, "complex") {
+    return (
+      type: "complex",
+      re: substitute(expr.re, var-name, replacement),
+      im: substitute(expr.im, var-name, replacement),
     )
   }
   return expr

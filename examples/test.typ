@@ -86,6 +86,27 @@
 #assert-ok(rg9e2, "implicit-diff-eval-right")
 #assert-true(calc.abs(rg9e1.value - rg9e2.value) < 1e-9, "implicit-diff-value")
 
+#let rg10 = cas.diff("abs(x)", "x", strict: false)
+#assert-ok(rg10, "nonsmooth-abs")
+#assert-true(rg10.expr.type == "piecewise", "nonsmooth-abs-piecewise")
+#assert-true(rg10.warnings.len() > 0, "nonsmooth-abs-warning")
+
+#let rg11 = cas.diff("min(x, x^2)", "x", strict: false)
+#assert-ok(rg11, "nonsmooth-min")
+#assert-true(rg11.expr.type == "piecewise", "nonsmooth-min-piecewise")
+
+#let rg12 = cas.limit("(1-cos(x))/x^2", "x", 0)
+#let rg12v = cas.eval(rg12.expr)
+#assert-ok(rg12, "limit-trig-standard")
+#assert-ok(rg12v, "limit-trig-standard-eval")
+#assert-true(calc.abs(rg12v.value - 0.5) < 1e-9, "limit-trig-standard-value")
+
+#let rg13 = cas.limit("(3x^2+1)/(2x^2-5)", "x", "inf")
+#let rg13v = cas.eval(rg13.expr)
+#assert-ok(rg13, "limit-infinity-rational")
+#assert-ok(rg13v, "limit-infinity-rational-eval")
+#assert-true(calc.abs(rg13v.value - 1.5) < 1e-9, "limit-infinity-rational-value")
+
 All strict gates passed.
 
 == 2. UX-First Usage
@@ -151,6 +172,16 @@ $ #cas.display("(x-1)(x+1)") $
 $ #cas.display(raw) $
 *After:*\
 $ #cas.display(simp.expr) $
+#let simp-panel = simp.diagnostics.at("restriction-panel", default: none)
+#if simp-panel != none [
+  *restriction panel (simplify):*\
+  #text(size: 0.92em)[active=#simp-panel.counts.active, satisfied=#simp-panel.counts.satisfied, conflicts=#simp-panel.counts.conflicts]
+  #for row in simp-panel.rows [
+    #text(size: 0.88em)[#row.status ":"]
+    #h(0.35em)
+    #row.math
+  ]
+]
 
 #let ad-src = "(-inf,0)∪(0,inf)"
 #let ad-assume = cas.assume-domain("x", ad-src)
@@ -221,15 +252,55 @@ $ #cas.display("exp(x)") $
 $ #cas.display(t1.expr) $
 
 #let l1 = cas.limit("sin(x)/x", "x", 0)
+#let l1l = cas.limit("sin(x)/x", "x", "0-")
+#let l1r = cas.limit("sin(x)/x", "x", "0+")
+#let l2 = cas.limit("(1-cos(x))/x^2", "x", 0)
+#let l3 = cas.limit("(3x^2+1)/(2x^2-5)", "x", "inf")
 #assert-ok(l1, "limit-basic")
+#assert-ok(l1l, "limit-left")
+#assert-ok(l1r, "limit-right")
+#assert-ok(l2, "limit-trig-std")
+#assert-ok(l3, "limit-inf-rational")
 #let l1v = cas.eval(l1.expr)
+#let l1lv = cas.eval(l1l.expr)
+#let l1rv = cas.eval(l1r.expr)
+#let l2v = cas.eval(l2.expr)
+#let l3v = cas.eval(l3.expr)
 #assert-ok(l1v, "limit-basic-eval")
+#assert-ok(l1lv, "limit-left-eval")
+#assert-ok(l1rv, "limit-right-eval")
+#assert-ok(l2v, "limit-trig-std-eval")
+#assert-ok(l3v, "limit-inf-rational-eval")
 #assert-true(calc.abs(l1v.value - 1) < 1e-9, "limit-sinc-value")
+#assert-true(calc.abs(l1lv.value - 1) < 1e-9, "limit-sinc-left-value")
+#assert-true(calc.abs(l1rv.value - 1) < 1e-9, "limit-sinc-right-value")
+#assert-true(calc.abs(l2v.value - 0.5) < 1e-9, "limit-trig-std-value")
+#assert-true(calc.abs(l3v.value - 1.5) < 1e-9, "limit-inf-rational-value")
 *limit*\
 *Before:*\
 $ #cas.display("sin(x)/x") $
 *After:*\
 $ #cas.display(l1.expr) $
+*limit (left-sided)*\
+*Before:*\
+$ #cas.display("sin(x)/x"), x arrow.r 0^- $
+*After:*\
+$ #cas.display(l1l.expr) $
+*limit (right-sided)*\
+*Before:*\
+$ #cas.display("sin(x)/x"), x arrow.r 0^+ $
+*After:*\
+$ #cas.display(l1r.expr) $
+*limit (trig standard)*\
+*Before:*\
+$ #cas.display("(1-cos(x))/x^2") $
+*After:*\
+$ #cas.display(l2.expr) $
+*limit (x -> inf, rational degree)*\
+*Before:*\
+$ #cas.display("(3x^2+1)/(2x^2-5)"), x arrow.r infinity $
+*After:*\
+$ #cas.display(l3.expr) $
 
 #let e1 = cas.eval("x^2 + 1", bindings: (x: 3))
 #assert-ok(e1, "eval-basic")
@@ -243,7 +314,7 @@ $ #e1.value $
 #assert-ok(sub1, "substitute-basic")
 *substitute*\
 *Before:*\
-$ #cas.display("x^2 + y") + " ; x -> z+1" $
+$ #cas.display("x^2 + y"), x arrow.r z + 1 $
 *After:*\
 $ #cas.display(sub1.expr) $
 
@@ -392,7 +463,7 @@ $ #cas.display(mi.expr) $
 *Before (A):*\
 $ #cas.display(m-g) $
 *Before (b):*\
-$ "(5, 6)" $
+$ b = (5, 6) $
 *After:*\
 #for (i, s) in msolve.expr.enumerate() [
   $ x_(#(i + 1)) = #cas.display(s) $
@@ -424,7 +495,7 @@ $ #cas.display(m-h) $
 #assert-ok(lins, "systems-linear")
 *linear system:*\
 *Before:*\
-$ #cas.display("2x+y-5") + ", " + #cas.display("x-y-1") $
+$ #cas.display("2x+y-5"), #cas.display("x-y-1") $
 *After:*\
 $ x = #cas.display(lins.value.at("x")), y = #cas.display(lins.value.at("y")) $
 
@@ -432,7 +503,7 @@ $ x = #cas.display(lins.value.at("x")), y = #cas.display(lins.value.at("y")) $
 #assert-ok(nls, "systems-nonlinear")
 *nonlinear system:*\
 *Before:*\
-$ #cas.display("x^2+y^2-5") + ", " + #cas.display("x-y-1") $
+$ #cas.display("x^2+y^2-5"), #cas.display("x-y-1") $
 *After:*\
 $ upright("converged") = #nls.value.converged, upright("iterations") = #nls.value.iterations $
 $ x approx #cas.display(nls.value.solution.at("x")), y approx #cas.display(nls.value.solution.at("y")) $
@@ -445,7 +516,7 @@ $ x approx #cas.display(nls.value.solution.at("x")), y approx #cas.display(nls.v
 #assert-ok(pd-r, "poly-div-remainder-expr")
 *poly div:*\
 *Before:*\
-$ #cas.display("x^3-1") + " / " + #cas.display("x-1") $
+$ #cas.display("x^3-1") / #cas.display("x-1") $
 *After:*\
 $ q(x) = #cas.display(pd-q.expr), r(x) = #cas.display(pd-r.expr) $
 
@@ -493,7 +564,7 @@ $ #cas.display(rd.expr) $
 $ #cas.display(ri.expr) $
 *Roots found (distinct):*\
 *Before:*\
-$ #cas.display(rs.expr) + " = 0" $
+$ #cas.display(rs.expr) = 0 $
 *After:*\
 $ #cas.roots-of(rz).len() $
 *Restrictions summary:*\
@@ -567,6 +638,35 @@ $ #cas.display(ex-d1.expr) $
 $ #cas.display("x*ln(x)") $
 *After:*\
 $ #cas.display(ex-d2.expr) $
+
+#let ex-nd1 = cas.diff("abs(x)", "x", strict: false)
+#let ex-nd2 = cas.diff("min(x, x^2)", "x", strict: false)
+#let ex-nd3 = cas.diff("clamp(x,0,1)", "x", strict: false)
+#assert-ok(ex-nd1, "diff-nonsmooth-abs")
+#assert-ok(ex-nd2, "diff-nonsmooth-min")
+#assert-ok(ex-nd3, "diff-nonsmooth-clamp")
+#assert-true(ex-nd1.expr.type == "piecewise", "diff-nonsmooth-abs-piecewise")
+#assert-true(ex-nd2.expr.type == "piecewise", "diff-nonsmooth-min-piecewise")
+#assert-true(ex-nd3.expr.type == "piecewise", "diff-nonsmooth-clamp-piecewise")
+*diff (non-smooth abs, piecewise-aware):*\
+*Before:*\
+$ #cas.display("abs(x)") $
+*After:*\
+$ #cas.display(ex-nd1.expr) $
+*warnings:*\
+$ #ex-nd1.warnings.len() $
+
+*diff (non-smooth min, piecewise-aware):*\
+*Before:*\
+$ #cas.display("min(x, x^2)") $
+*After:*\
+$ #cas.display(ex-nd2.expr) $
+
+*diff (non-smooth clamp, piecewise-aware):*\
+*Before:*\
+$ #cas.display("clamp(x,0,1)") $
+*After:*\
+$ #cas.display(ex-nd3.expr) $
 
 #let ex-i1 = cas.integrate("x*exp(x)", "x", assumptions: a-base)
 #assert-ok(ex-i1, "integrate-1")
@@ -644,7 +744,7 @@ $ #ex-e1.value $
 #assert-ok(ex-sub1, "substitute")
 *substitute:*\
 *Before:*\
-$ #cas.display("x^2 + y^2") + " ; y -> 2x" $
+$ #cas.display("x^2 + y^2"), y arrow.r 2x $
 *After:*\
 $ #cas.display(ex-sub1.expr) $
 
@@ -662,7 +762,7 @@ $ #cas.display(ex-pb.expr) $
 #assert-ok(ex-lins, "linear-system")
 *linear system:*\
 *Before:*\
-$ #cas.display("x+y-3") + ", " + #cas.display("2x-y") $
+$ #cas.display("x+y-3"), #cas.display("2x-y") $
 *After:*\
 $ x = #cas.display(ex-lins.value.at("x")), y = #cas.display(ex-lins.value.at("y")) $
 

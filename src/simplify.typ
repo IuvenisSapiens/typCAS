@@ -486,6 +486,35 @@
   total
 }
 
+/// Internal helper `_cond-truth`.
+/// Returns `true`, `false`, or `none` when undecidable.
+#let _cond-truth(cond) = {
+  if cond == none { return none }
+  if is-type(cond, "cond-rel") {
+    if is-type(cond.lhs, "num") and is-type(cond.rhs, "num") {
+      let a = cond.lhs.val
+      let b = cond.rhs.val
+      if cond.rel == ">" { return a > b }
+      if cond.rel == ">=" { return a >= b }
+      if cond.rel == "<" { return a < b }
+      if cond.rel == "<=" { return a <= b }
+      if cond.rel == "!=" { return a != b }
+      if cond.rel == "=" or cond.rel == "==" { return a == b }
+    }
+    return none
+  }
+  if is-type(cond, "cond-and") {
+    let all = true
+    for c in cond.args {
+      let t = _cond-truth(c)
+      if t == false { return false }
+      if t == none { all = false }
+    }
+    return if all { true } else { none }
+  }
+  none
+}
+
 /// Internal helper `_rebuild-add`.
 #let _rebuild-add(terms) = {
   if terms.len() == 0 { return num(0) }
@@ -768,7 +797,40 @@
     return cmat(expr.rows.map(row => row.map(_simplify-once)))
   }
   if is-type(expr, "piecewise") {
-    return piecewise(expr.cases.map(c => (_simplify-once(c.at(0)), c.at(1))))
+    let next = ()
+    let fallback = none
+    for c in expr.cases {
+      let body = _simplify-once(c.at(0))
+      let cond0 = c.at(1)
+      if cond0 == none {
+        fallback = body
+        continue
+      }
+      let cond = if is-expr(cond0) { _simplify-once(cond0) } else { cond0 }
+      let truth = _cond-truth(cond)
+      if truth == false { continue }
+      if truth == true { return body }
+      next.push((body, cond))
+    }
+    if fallback != none { next.push((fallback, none)) }
+    if next.len() == 0 { return expr }
+    if next.len() == 1 and next.at(0).at(1) == none { return next.at(0).at(0) }
+    return piecewise(next)
+  }
+  if is-type(expr, "cond-rel") {
+    return cond-rel(_simplify-once(expr.lhs), expr.rel, _simplify-once(expr.rhs))
+  }
+  if is-type(expr, "cond-and") {
+    let args = ()
+    for c in expr.args {
+      let s = _simplify-once(c)
+      let truth = _cond-truth(s)
+      if truth == false { return cond-and(cond-rel(num(0), "=", num(1))) }
+      if truth == true { continue }
+      args.push(s)
+    }
+    if args.len() == 0 { return cond-rel(num(1), "=", num(1)) }
+    return cond-and(..args)
   }
   if is-type(expr, "complex") {
     return (type: "complex", re: _simplify-once(expr.re), im: _simplify-once(expr.im))
@@ -797,9 +859,28 @@
   let identity-events = ()
   let seq = 1
   let i = 0
+  let seen = (:)
+  let pass-cache = (:)
   while i < 12 {
+    let id = repr(cur)
+    if id in seen {
+      return (
+        expr: cur,
+        identity-events: identity-events,
+        identity-count: identity-events.len(),
+        identity-unique: _identity-unique(identity-events),
+      )
+    }
+    seen.insert(id, true)
+
     let pyth-before = _count-trig-pythagorean-expr(cur)
-    let core = _canonicalize-structure(_simplify-once(cur))
+    let core = if id in pass-cache {
+      pass-cache.at(id)
+    } else {
+      let s = _canonicalize-structure(_simplify-once(cur))
+      pass-cache.insert(id, s)
+      s
+    }
     let pyth-after = _count-trig-pythagorean-expr(core)
     if pyth-before > pyth-after {
       let hidden = pyth-before - pyth-after

@@ -18,7 +18,7 @@
 #import "../poly.typ": poly-coeffs
 #import "../truths/function-registry.typ": fn-spec
 #import "../core/expr-walk.typ": contains-var as _contains-var-core, expr-complexity as _expr-complexity-core
-#import "../restrictions.typ": merge-restrictions, collect-structural-restrictions, collect-function-restrictions, filter-restrictions-by-assumptions, render-restriction-note
+#import "../restrictions.typ": build-restriction-panel, render-restriction-note
 #import "detail.typ": normalize-detail, resolve-detail-depth
 #import "model.typ": _s-header, _s-equation, _s-define, _s-note, _s-group, _s-branch, _s-apply
 
@@ -103,36 +103,93 @@
   }
 }
 
-#let _restriction-notes(expr, stage, assumptions) = {
-  let restrictions = merge-restrictions(
-    merge-restrictions(
-      collect-structural-restrictions(expr),
-      collect-function-restrictions(expr, stage: "defined"),
-    ),
-    collect-function-restrictions(expr, stage: stage),
+#let _restriction-row-note(row) = {
+  let status = row.at("status", default: "active")
+  let tone = if status == "conflict" { "error" } else if status == "active" { "warn" } else { "meta" }
+  let stage = row.at("stage", default: "defined")
+  let source = row.at("source", default: "")
+  _s-note(
+    [
+      #render-restriction-note((lhs: row.lhs, rel: row.rel, rhs: row.rhs, note: row.note))
+      #h(0.35em)
+      #text(size: 0.82em, fill: luma(120))[[(#status, #stage, #source)]]
+    ],
+    tone: tone,
   )
-  let filtered = filter-restrictions-by-assumptions(restrictions, assumptions)
+}
+
+#let _restriction-notes(expr, stage, assumptions) = {
+  let panel = build-restriction-panel(expr, stage: stage, assumptions: assumptions)
   let out = ()
+  let counts = panel.counts
+  out.push(_s-note(
+    "Active assumptions panel: active="
+      + str(counts.active)
+      + ", satisfied="
+      + str(counts.satisfied)
+      + ", conflicts="
+      + str(counts.conflicts)
+      + ".",
+    tone: "meta",
+  ))
+  for row in panel.rows {
+    out.push(_restriction-row-note(row))
+  }
+  out
+}
 
-  if filtered.conflicts.len() > 0 {
-    out.push(_s-note("Domain conflicts detected:", tone: "error"))
-    for r in filtered.conflicts {
-      out.push(_s-note(render-restriction-note(r), tone: "error"))
+#let _collect-nonsmooth-boundary(expr, var) = {
+  if not is-expr(expr) { return () }
+
+  let out = ()
+  if is-type(expr, "func") and expr.name == ("diff_" + var) {
+    let args = func-args(expr)
+    if args.len() == 1 and is-type(args.at(0), "func") {
+      let n = args.at(0).name
+      if n == "abs" or n == "sign" or n == "min" or n == "max" or n == "clamp" {
+        out.push((fn: n, expr: args.at(0)))
+      }
     }
-    return out
   }
 
-  if filtered.restrictions.len() > 0 {
-    out.push(_s-note("Restrictions carried from original expression:", tone: "warn"))
-    for r in filtered.restrictions {
-      out.push(_s-note(render-restriction-note(r), tone: "warn"))
+  if is-type(expr, "neg") {
+    return out + _collect-nonsmooth-boundary(expr.arg, var)
+  }
+  if is-type(expr, "add") or is-type(expr, "mul") {
+    return out + _collect-nonsmooth-boundary(expr.args.at(0), var) + _collect-nonsmooth-boundary(expr.args.at(1), var)
+  }
+  if is-type(expr, "pow") {
+    return out + _collect-nonsmooth-boundary(expr.base, var) + _collect-nonsmooth-boundary(expr.exp, var)
+  }
+  if is-type(expr, "div") {
+    return out + _collect-nonsmooth-boundary(expr.num, var) + _collect-nonsmooth-boundary(expr.den, var)
+  }
+  if is-type(expr, "func") {
+    let all = out
+    for a in func-args(expr) { all += _collect-nonsmooth-boundary(a, var) }
+    return all
+  }
+  if is-type(expr, "log") {
+    return out + _collect-nonsmooth-boundary(expr.base, var) + _collect-nonsmooth-boundary(expr.arg, var)
+  }
+  if is-type(expr, "piecewise") {
+    let all = out
+    for c in expr.cases {
+      all += _collect-nonsmooth-boundary(c.at(0), var)
+      let cond = c.at(1)
+      if is-expr(cond) { all += _collect-nonsmooth-boundary(cond, var) }
     }
-    return out
+    return all
+  }
+  if is-type(expr, "cond-rel") {
+    return out + _collect-nonsmooth-boundary(expr.lhs, var) + _collect-nonsmooth-boundary(expr.rhs, var)
+  }
+  if is-type(expr, "cond-and") {
+    let all = out
+    for c in expr.args { all += _collect-nonsmooth-boundary(c, var) }
+    return all
   }
 
-  if filtered.satisfied.len() > 0 {
-    out.push(_s-note("All domain restrictions satisfied by assumptions.", tone: "meta"))
-  }
   out
 }
 
@@ -203,65 +260,80 @@
   none
 }
 
-#let _trace-diff-core(expr, var, depth, used-vars, detail: 1) = {
+#let _trace-diff-core(expr, var, depth, used-vars, detail: 1, memo: none) = {
+  let cache = if memo == none { (:)} else { memo }
   let src = simplify(expr)
+  let key = "diff|" + repr(src) + "|" + var + "|" + repr(depth) + "|" + str(detail)
+  if key in cache { return cache.at(key) }
   let out = simplify(diff(src, var))
   let lhs = _v-diff(src, var)
 
   if not _can-recurse(depth) {
     let shallow = _diff-rule-form(src, var)
     if shallow == none {
-      return (_s-equation(lhs, out, rule: "Differentiate", kind: "transform"),)
+      let built = (_s-equation(lhs, out, rule: "Differentiate", kind: "transform"),)
+      cache.insert(key, built)
+      return built
     }
     if expr-eq(shallow.expr, out) {
-      return (_s-equation(lhs, out, rule: shallow.rule, kind: "transform"),)
+      let built = (_s-equation(lhs, out, rule: shallow.rule, kind: "transform"),)
+      cache.insert(key, built)
+      return built
     }
-    return (
+    let built = (
       _s-equation(lhs, shallow.expr, rule: shallow.rule, kind: "transform"),
       _s-equation(shallow.expr, out, rule: "Simplify derivative", kind: "sub"),
     )
+    cache.insert(key, built)
+    return built
   }
 
   if is-type(src, "add") {
     let a = src.args.at(0)
     let b = src.args.at(1)
     let split = add(_v-diff(a, var), _v-diff(b, var))
-    let left-steps = _trace-diff-core(a, var, _next-depth(depth), used-vars, detail: detail)
-    let right-steps = _trace-diff-core(b, var, _next-depth(depth), used-vars, detail: detail)
+    let left-steps = _trace-diff-core(a, var, _next-depth(depth), used-vars, detail: detail, memo: cache)
+    let right-steps = _trace-diff-core(b, var, _next-depth(depth), used-vars, detail: detail, memo: cache)
     let branches = _branch-pair("Branch 1", left-steps, "Branch 2", right-steps)
-    return (
+    let built = (
       _s-equation(lhs, split, rule: "Apply sum rule", kind: "transform"),
     ) + branches + (
       _s-equation(split, out, rule: "Simplify derivative", kind: "sub"),
     )
+    cache.insert(key, built)
+    return built
   }
 
   if is-type(src, "mul") {
     let a = src.args.at(0)
     let b = src.args.at(1)
     let split = add(mul(_v-diff(a, var), b), mul(a, _v-diff(b, var)))
-    let left-steps = _trace-diff-core(a, var, _next-depth(depth), used-vars, detail: detail)
-    let right-steps = _trace-diff-core(b, var, _next-depth(depth), used-vars, detail: detail)
+    let left-steps = _trace-diff-core(a, var, _next-depth(depth), used-vars, detail: detail, memo: cache)
+    let right-steps = _trace-diff-core(b, var, _next-depth(depth), used-vars, detail: detail, memo: cache)
     let branches = _branch-pair("Branch 1", left-steps, "Branch 2", right-steps)
-    return (
+    let built = (
       _s-equation(lhs, split, rule: "Apply product rule", kind: "transform"),
     ) + branches + (
       _s-equation(split, out, rule: "Simplify derivative", kind: "sub"),
     )
+    cache.insert(key, built)
+    return built
   }
 
   if is-type(src, "div") {
     let n = src.num
     let d = src.den
     let split = cdiv(sub(mul(_v-diff(n, var), d), mul(n, _v-diff(d, var))), pow(d, num(2)))
-    let left-steps = _trace-diff-core(n, var, _next-depth(depth), used-vars, detail: detail)
-    let right-steps = _trace-diff-core(d, var, _next-depth(depth), used-vars, detail: detail)
+    let left-steps = _trace-diff-core(n, var, _next-depth(depth), used-vars, detail: detail, memo: cache)
+    let right-steps = _trace-diff-core(d, var, _next-depth(depth), used-vars, detail: detail, memo: cache)
     let branches = _branch-pair("Numerator branch", left-steps, "Denominator branch", right-steps)
-    return (
+    let built = (
       _s-equation(lhs, split, rule: "Apply quotient rule", kind: "transform"),
     ) + branches + (
       _s-equation(split, out, rule: "Simplify derivative", kind: "sub"),
     )
+    cache.insert(key, built)
+    return built
   }
 
   if is-type(src, "pow") {
@@ -271,52 +343,60 @@
     if is-type(e, "num") {
       let split = mul(mul(e, pow(b, sub(e, num(1)))), _v-diff(b, var))
       let children = if _contains-var(b, var) {
-        _trace-diff-core(b, var, _next-depth(depth), used-vars, detail: detail)
+        _trace-diff-core(b, var, _next-depth(depth), used-vars, detail: detail, memo: cache)
       } else {
         ()
       }
-      return (
+      let built = (
         _s-equation(lhs, split, rule: "Apply power rule", kind: "transform"),
         _s-group(children),
         _s-equation(split, out, rule: "Simplify derivative", kind: "sub"),
       )
+      cache.insert(key, built)
+      return built
     }
 
     if is-type(b, "num") {
       let split = mul(mul(pow(b, e), ln-of(b)), _v-diff(e, var))
       let children = if _contains-var(e, var) {
-        _trace-diff-core(e, var, _next-depth(depth), used-vars, detail: detail)
+        _trace-diff-core(e, var, _next-depth(depth), used-vars, detail: detail, memo: cache)
       } else {
         ()
       }
-      return (
+      let built = (
         _s-equation(lhs, split, rule: "Apply exponential rule", kind: "transform"),
         _s-group(children),
         _s-equation(split, out, rule: "Simplify derivative", kind: "sub"),
       )
+      cache.insert(key, built)
+      return built
     }
 
     let split = mul(pow(b, e), add(mul(_v-diff(e, var), ln-of(b)), mul(e, cdiv(_v-diff(b, var), b))))
     let e-var = _contains-var(e, var)
     let b-var = _contains-var(b, var)
-    let e-steps = if e-var { _trace-diff-core(e, var, _next-depth(depth), used-vars, detail: detail) } else { () }
-    let b-steps = if b-var { _trace-diff-core(b, var, _next-depth(depth), used-vars, detail: detail) } else { () }
+    let e-steps = if e-var { _trace-diff-core(e, var, _next-depth(depth), used-vars, detail: detail, memo: cache) } else { () }
+    let b-steps = if b-var { _trace-diff-core(b, var, _next-depth(depth), used-vars, detail: detail, memo: cache) } else { () }
 
     if e-var and b-var {
       let branches = _branch-pair("Exponent branch", e-steps, "Base branch", b-steps)
-      return (
+      let built = (
         _s-equation(lhs, split, rule: "Apply generalized power rule", kind: "transform"),
       ) + branches + (
         _s-equation(split, out, rule: "Simplify derivative", kind: "sub"),
       )
+      cache.insert(key, built)
+      return built
     }
 
     let children = if e-var { e-steps } else { b-steps }
-    return (
+    let built = (
       _s-equation(lhs, split, rule: "Apply generalized power rule", kind: "transform"),
       _s-group(children),
       _s-equation(split, out, rule: "Simplify derivative", kind: "sub"),
     )
+    cache.insert(key, built)
+    return built
   }
 
   if is-type(src, "func") and func-args(src).len() == 1 {
@@ -335,26 +415,33 @@
       }
 
       let children = if _contains-var(u, var) and not (is-type(u, "var") and u.name == var) {
-        _trace-diff-core(u, var, _next-depth(depth), used-vars, detail: detail)
+        _trace-diff-core(u, var, _next-depth(depth), used-vars, detail: detail, memo: cache)
       } else {
         ()
       }
 
       let rule = if spec.calculus.diff-step != none { spec.calculus.diff-step } else { "Apply chain rule" }
-      return (
+      let built = (
         _s-equation(lhs, split, rule: rule, kind: "transform"),
         _s-group(local + children),
         _s-equation(split, out, rule: "Simplify derivative", kind: "sub"),
       )
+      cache.insert(key, built)
+      return built
     }
   }
 
-  (_s-equation(lhs, out, rule: "Differentiate", kind: "transform"),)
+  let built = (_s-equation(lhs, out, rule: "Differentiate", kind: "transform"),)
+  cache.insert(key, built)
+  built
 }
 
-#let _trace-integrate-core(expr, var, depth, used-vars, detail: 1) = {
+#let _trace-integrate-core(expr, var, depth, used-vars, detail: 1, memo: none) = {
+  let cache = if memo == none { (:)} else { memo }
   let method = analyze-integral(expr, var)
   let src = method.expr
+  let key = "integ|" + repr(src) + "|" + var + "|" + repr(depth) + "|" + str(detail)
+  if key in cache { return cache.at(key) }
   let out = integral-c-last(simplify(integrate(src, var)))
   let lhs = _v-int(src, var)
   let recurse = _can-recurse(depth)
@@ -364,43 +451,55 @@
     let b = method.data.right
     let split = add(_v-int(a, var), _v-int(b, var))
     if not recurse {
-      return (_s-equation(lhs, split, rule: "Apply linearity", kind: "transform"),)
+      let built = (_s-equation(lhs, split, rule: "Apply linearity", kind: "transform"),)
+      cache.insert(key, built)
+      return built
     }
-    let left-steps = _trace-integrate-core(a, var, _next-depth(depth), used-vars, detail: detail)
-    let right-steps = _trace-integrate-core(b, var, _next-depth(depth), used-vars, detail: detail)
+    let left-steps = _trace-integrate-core(a, var, _next-depth(depth), used-vars, detail: detail, memo: cache)
+    let right-steps = _trace-integrate-core(b, var, _next-depth(depth), used-vars, detail: detail, memo: cache)
     let branches = _branch-pair("Branch 1", left-steps, "Branch 2", right-steps)
-    return (
+    let built = (
       _s-equation(lhs, split, rule: "Apply linearity", kind: "transform"),
     ) + branches + (
       _s-equation(split, out, rule: "Simplify antiderivative", kind: "sub"),
     )
+    cache.insert(key, built)
+    return built
   }
 
   if method.kind == "neg" {
     let inner = method.data.inner
     let split = neg(_v-int(inner, var))
     if not recurse {
-      return (_s-equation(lhs, split, rule: "Pull out -1", kind: "transform"),)
+      let built = (_s-equation(lhs, split, rule: "Pull out -1", kind: "transform"),)
+      cache.insert(key, built)
+      return built
     }
-    let children = _trace-integrate-core(inner, var, _next-depth(depth), used-vars, detail: detail)
-    return (
+    let children = _trace-integrate-core(inner, var, _next-depth(depth), used-vars, detail: detail, memo: cache)
+    let built = (
       _s-equation(lhs, split, rule: "Pull out -1", kind: "transform"),
       _s-group(children),
       _s-equation(split, out, rule: "Simplify antiderivative", kind: "sub"),
     )
+    cache.insert(key, built)
+    return built
   }
 
   if method.kind == "const-factor" {
     let split = mul(method.data.const, _v-int(method.data.inner, var))
     if not recurse {
-      return (_s-equation(lhs, split, rule: "Pull out constant", kind: "transform"),)
+      let built = (_s-equation(lhs, split, rule: "Pull out constant", kind: "transform"),)
+      cache.insert(key, built)
+      return built
     }
-    let children = _trace-integrate-core(method.data.inner, var, _next-depth(depth), used-vars, detail: detail)
-    return (
+    let children = _trace-integrate-core(method.data.inner, var, _next-depth(depth), used-vars, detail: detail, memo: cache)
+    let built = (
       _s-equation(lhs, split, rule: "Pull out constant", kind: "transform"),
       _s-group(children),
       _s-equation(split, out, rule: "Simplify antiderivative", kind: "sub"),
     )
+    cache.insert(key, built)
+    return built
   }
 
   if method.kind == "u-sub" {
@@ -423,58 +522,85 @@
     let primitive-u = integral-c-last(simplify(add(primitive-u-core, const-expr("C"))))
 
     if not recurse {
-      return (_s-equation(lhs, transformed, rule: "Apply u-substitution", kind: "transform"),)
+      let built = (_s-equation(lhs, transformed, rule: "Apply u-substitution", kind: "transform"),)
+      cache.insert(key, built)
+      return built
     }
 
-    return (
+    let built = (
       _s-define(uname, method.data.u, prefix: "set"),
       _s-define(duvar, method.data.du, label: "derive"),
       _s-equation(lhs, transformed, rule: "Apply u-substitution", kind: "transform"),
       _s-equation(transformed, primitive-u, rule: "Integrate in " + uname, kind: "sub"),
       _s-equation(primitive-u, out, rule: "Back-substitute", kind: "meta"),
     )
+    cache.insert(key, built)
+    return built
   }
 
   if method.kind == "by-parts" {
     if recurse {
-      return (
+      let built = (
         _s-note("Integration by parts pattern detected.", tone: "meta"),
         _s-equation(lhs, out, rule: "Apply integration by parts", kind: "transform"),
       )
+      cache.insert(key, built)
+      return built
     }
-    return (_s-equation(lhs, out, rule: "Apply integration by parts", kind: "transform"),)
+    let built = (_s-equation(lhs, out, rule: "Apply integration by parts", kind: "transform"),)
+    cache.insert(key, built)
+    return built
   }
 
   if method.kind == "partial-fraction" {
     if recurse {
-      return (
+      let built = (
         _s-note("Partial fraction pattern detected.", tone: "meta"),
         _s-equation(lhs, out, rule: "Integrate via partial fractions", kind: "transform"),
       )
+      cache.insert(key, built)
+      return built
     }
-    return (_s-equation(lhs, out, rule: "Integrate via partial fractions", kind: "transform"),)
+    let built = (_s-equation(lhs, out, rule: "Integrate via partial fractions", kind: "transform"),)
+    cache.insert(key, built)
+    return built
   }
 
   if method.kind == "const" {
-    return (_s-equation(lhs, out, rule: "Integrate constant", kind: "transform"),)
+    let built = (_s-equation(lhs, out, rule: "Integrate constant", kind: "transform"),)
+    cache.insert(key, built)
+    return built
   }
   if method.kind == "var" or method.kind == "power" {
-    return (_s-equation(lhs, out, rule: "Apply power rule", kind: "transform"),)
+    let built = (_s-equation(lhs, out, rule: "Apply power rule", kind: "transform"),)
+    cache.insert(key, built)
+    return built
   }
   if method.kind == "reciprocal" {
-    return (_s-equation(lhs, out, rule: "Apply ln rule", kind: "transform"),)
+    let built = (_s-equation(lhs, out, rule: "Apply ln rule", kind: "transform"),)
+    cache.insert(key, built)
+    return built
   }
   if method.kind == "func-primitive" {
-    return (_s-equation(lhs, out, rule: "Apply primitive rule", kind: "transform"),)
+    let built = (_s-equation(lhs, out, rule: "Apply primitive rule", kind: "transform"),)
+    cache.insert(key, built)
+    return built
   }
   if method.kind == "square-family" {
-    return (_s-equation(lhs, out, rule: "Apply square-family primitive", kind: "transform"),)
+    let built = (_s-equation(lhs, out, rule: "Apply square-family primitive", kind: "transform"),)
+    cache.insert(key, built)
+    return built
   }
 
-  (_s-equation(lhs, out, rule: "Integrate", kind: "transform"),)
+  let built = (_s-equation(lhs, out, rule: "Integrate", kind: "transform"),)
+  cache.insert(key, built)
+  built
 }
 
-#let _trace-simplify-core(expr, assumptions, depth, detail: 1) = {
+#let _trace-simplify-core(expr, assumptions, depth, detail: 1, memo: none) = {
+  let cache = if memo == none { (:)} else { memo }
+  let key = "simp|" + repr(expr) + "|" + repr(depth) + "|" + str(detail) + "|" + repr(assumptions)
+  if key in cache { return cache.at(key) }
   let cur = expr
   let out = ()
   let used-identities = ()
@@ -532,13 +658,19 @@
   }
 
   if out.len() == 0 {
-    return (_s-note("No further simplification found.", tone: "meta"),)
+    let built = (_s-note("No further simplification found.", tone: "meta"),)
+    cache.insert(key, built)
+    return built
   }
   if used-identities.len() == 0 {
     let fallback = simplify-meta-core(expr, allow-domain-sensitive: true, assumptions: assumptions)
-    return out + _identity-summary-notes(fallback.at("identities-used", default: ()))
+    let built = out + _identity-summary-notes(fallback.at("identities-used", default: ()))
+    cache.insert(key, built)
+    return built
   }
-  out + _identity-summary-notes(used-identities)
+  let built = out + _identity-summary-notes(used-identities)
+  cache.insert(key, built)
+  built
 }
 
 #let _quadratic-discriminant(expr, v) = {
@@ -632,8 +764,13 @@
   if d == 0 { return () }
   let used-depth = resolve-detail-depth(d, depth: depth)
   let src = simplify(apply-assumptions(expr, assumptions))
-  let core = _trace-diff-core(src, var, used-depth, (:), detail: d)
-  core + _restriction-notes(src, "diff", assumptions)
+  let core = _trace-diff-core(src, var, used-depth, (:), detail: d, memo: (:))
+  let out = core
+  let boundary = _collect-nonsmooth-boundary(simplify(diff(src, var)), var)
+  if boundary.len() > 0 {
+    out.push(_s-note("Non-smooth boundary fallback remains symbolic in one or more branches.", tone: "warn"))
+  }
+  out + _restriction-notes(src, "diff", assumptions)
 }
 
 #let step-integrate(expr, var, depth: none, assumptions: none, detail: 1) = {
@@ -641,7 +778,7 @@
   if d == 0 { return () }
   let used-depth = resolve-detail-depth(d, depth: depth)
   let src = apply-assumptions(expr, assumptions)
-  let core = _trace-integrate-core(src, var, used-depth, (:), detail: d)
+  let core = _trace-integrate-core(src, var, used-depth, (:), detail: d, memo: (:))
   core + _restriction-notes(src, "integ", assumptions)
 }
 
@@ -650,7 +787,7 @@
   if d == 0 { return () }
   let used-depth = resolve-detail-depth(d, depth: depth)
   let src = apply-assumptions(expr, assumptions)
-  let core = _trace-simplify-core(src, assumptions, used-depth, detail: d)
+  let core = _trace-simplify-core(src, assumptions, used-depth, detail: d, memo: (:))
   core + _restriction-notes(src, "defined", assumptions)
 }
 

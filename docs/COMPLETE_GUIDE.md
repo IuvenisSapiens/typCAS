@@ -13,10 +13,14 @@ This guide documents the current typcas system from user-facing APIs to core arc
 7. [Step and Trace System](#step-and-trace-system)
 8. [Function Cookbook (Registry-Driven)](#function-cookbook-registry-driven)
 9. [Identity Engine](#identity-engine)
-10. [Architecture Map](#architecture-map)
-11. [Extending typcas Safely](#extending-typcas-safely)
-12. [Troubleshooting](#troubleshooting)
-13. [Local Validation](#local-validation)
+10. [Non-Smooth Derivatives](#non-smooth-derivatives)
+11. [Limit Engine](#limit-engine)
+12. [Restriction Panel UX](#restriction-panel-ux)
+13. [Simplifier Safety and Performance](#simplifier-safety-and-performance)
+14. [Architecture Map](#architecture-map)
+15. [Extending typcas Safely](#extending-typcas-safely)
+16. [Troubleshooting](#troubleshooting)
+17. [Local Validation](#local-validation)
 
 ## What Is a CAS?
 
@@ -33,7 +37,7 @@ typcas supports:
 ## Quick Start
 
 ```typst
-#import "@preview/typcas:0.2.0": *
+#import "@preview/typcas:0.2.1": *
 
 #let s = cas.simplify("sin(x)^2 + cos(x)^2")
 #if cas.ok(s) [
@@ -68,6 +72,15 @@ Primary task APIs:
 #let l = cas.limit(input, "x", to)
 #let t = cas.taylor(input, "x", x0, order)
 #let v = cas.eval(input, bindings: (:))
+```
+
+Limit target accepts finite points, `inf/-inf`, and one-sided strings:
+
+```typst
+#let l0 = cas.limit("sin(x)/x", "x", 0)
+#let lplus = cas.limit("sin(x)/x", "x", "0+")
+#let lminus = cas.limit("sin(x)/x", "x", "0-")
+#let linf = cas.limit("(3x^2+1)/(2x^2-5)", "x", "inf")
 ```
 
 Utility helpers:
@@ -150,6 +163,19 @@ Restriction model:
 - filtered against assumptions into `restrictions/satisfied/conflicts/residual`
 
 `strict: true` blocks conflicting results with `ok: false`.
+
+Each core operation also exposes a compact panel in diagnostics:
+
+```typst
+#let r = cas.simplify("(x^2-1)/(x-1)", assumptions: cas.assume-domain("x", "(-inf,1) ∪ (1,inf)"))
+#let panel = r.diagnostics.at("restriction-panel", default: none)
+```
+
+`panel` includes:
+
+- `counts` (`active/satisfied/conflicts`)
+- `rows` with `status`, `source`, `stage`, relation, and note
+- passthrough tuples (`restrictions`, `satisfied`, `conflicts`, `residual`, `variable-domains`)
 
 ## Step and Trace System
 
@@ -234,12 +260,7 @@ Unknown function names remain symbolic fallback.
 
 ### Calculus Policy for New Non-Smooth Helpers
 
-For this pass, new helpers above default to symbolic fallback in calculus dispatch:
-
-- `diff: none`
-- `integ: none`
-
-This is intentional correctness-first behavior until safe closed forms are added.
+Integration remains conservative (`integ: none` for these helpers), but differentiation is now piecewise-aware with symbolic boundary fallback.
 
 ## Identity Engine
 
@@ -265,6 +286,69 @@ Identity telemetry is available in simplify diagnostics:
 #let count = s.diagnostics.at("identity-count", default: 0)
 #let events = s.diagnostics.at("identity-events", default: ())
 ```
+
+## Non-Smooth Derivatives
+
+typcas now emits piecewise forms for non-smooth derivatives:
+
+- `d/dx abs(u)` -> piecewise with `u > 0` and `u < 0` branches plus boundary fallback
+- `d/dx sign(u)` -> `0` for `u != 0` plus boundary fallback
+- `d/dx min(a,b)` / `max(a,b)` -> ordered relation branches (`a < b`, `b < a`, etc.)
+- `d/dx clamp(x, lo, hi)` -> outer and interior branches (`x < lo`, `lo < x < hi`, `x > hi`)
+
+Boundary branches are intentionally symbolic for correctness. Results include warnings:
+
+```typst
+#let d = cas.diff("abs(x)", "x", strict: false)
+#let warnings = d.warnings
+```
+
+Look for warning code `nonsmooth-boundary`.
+
+## Limit Engine
+
+Limit handling is conservative but expanded:
+
+- one-sided finite limits (`"a+"`, `"a-"`)
+- `x -> ±inf` rational degree rules for `P(x)/Q(x)`
+- guarded trig standard forms:
+  - `sin(u)/u -> 1` at `u -> 0`
+  - `tan(u)/u -> 1` at `u -> 0`
+  - `(1-cos(u))/u^2 -> 1/2` at `u -> 0`
+- L'Hospital path for finite-point quotient indeterminate forms
+- unresolved forms remain symbolic `limit(...)` nodes (never guessed)
+
+## Restriction Panel UX
+
+The restriction panel is surfaced in two places:
+
+1. `result.diagnostics["restriction-panel"]` for machine-readable UI/logging.
+2. step traces (`step-simplify`, `step-diff`, `step-integrate`, `step-solve`) as compact summary + rows.
+
+Statuses:
+
+- `active`: still required under current assumptions
+- `satisfied`: proven by assumptions/domain propagation
+- `conflict`: assumption/domain contradiction
+
+This keeps domain semantics visible without changing result contract shape.
+
+## Simplifier Safety and Performance
+
+The simplify fixed-point pass includes:
+
+- deterministic pass cap
+- cycle detection on seen normalized states
+- indeterminate-form safety (for example `0/0` is preserved)
+- identity telemetry (`identity-events`, `identity-count`, `identity-unique`)
+
+Per-call memoization is used in:
+
+- simplify pass internals
+- diff recursion
+- trace recursion
+
+Caches are local to a single operation call (no global cache state).
 
 ## Architecture Map
 
@@ -309,11 +393,21 @@ Typical path:
 - Domain conflict in strict mode: inspect `res.conflicts` and assumptions.
 - Missing simplification: check if identity is domain-sensitive and whether `allow-domain-sensitive: true` is enabled.
 - Steps missing: ensure `detail > 0` or use explicit trace API.
+- Non-smooth derivative confusion: inspect `warnings` for `nonsmooth-boundary`.
+- Unexpected limit form: check whether result stayed symbolic `limit(...)` (means unresolved safely).
 
 ## Local Validation
 
 ```bash
 typst compile examples/test.typ /tmp/typcas-test.pdf --root .
+```
+
+Probe compiles:
+
+```bash
+for probe in examples/probes/*.typ; do
+  typst compile "$probe" "/tmp/$(basename "$probe" .typ).pdf" --root .
+done
 ```
 
 Optional historical regression check:

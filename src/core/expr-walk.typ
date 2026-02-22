@@ -50,6 +50,16 @@
     }
     return false
   }
+  if is-type(expr, "cond-rel") {
+    if f(expr.lhs) { return true }
+    return f(expr.rhs)
+  }
+  if is-type(expr, "cond-and") {
+    for c in expr.args {
+      if f(c) { return true }
+    }
+    return false
+  }
   if is-type(expr, "complex") {
     if f(expr.re) { return true }
     return f(expr.im)
@@ -110,6 +120,16 @@
     for (body, cond) in expr.cases {
       c += expr-complexity(body)
       if is-expr(cond) { c += expr-complexity(cond) }
+    }
+    return c
+  }
+  if is-type(expr, "cond-rel") {
+    return 3 + expr-complexity(expr.lhs) + expr-complexity(expr.rhs)
+  }
+  if is-type(expr, "cond-and") {
+    let c = 4
+    for cond in expr.args {
+      c += expr-complexity(cond)
     }
     return c
   }

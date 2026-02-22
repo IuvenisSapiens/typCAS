@@ -5,7 +5,7 @@ This file lists how to use the public `cas.*` functions and the expression-level
 ## Import
 
 ```typst
-#import "@preview/typcas:0.2.0": *
+#import "@preview/typcas:0.2.1": *
 ```
 
 ## 1) Public `cas.*` Functions

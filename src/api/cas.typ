@@ -158,7 +158,7 @@
   (_as-query(input, assumptions: assumptions, field: field, strict: strict).factor)(v)
 }
 /// Compute limit as `var -> to`.
-#let limit(input, var, to, assumptions: none, field: none, strict: none) = (_as-query(input, assumptions: assumptions, field: field, strict: strict).limit)(var, _to-expr(to))
+#let limit(input, var, to, assumptions: none, field: none, strict: none) = (_as-query(input, assumptions: assumptions, field: field, strict: strict).limit)(var, to)
 /// Compute Taylor expansion around `x0` to given order.
 #let taylor(input, var, x0, order, assumptions: none, field: none, strict: none) = (_as-query(input, assumptions: assumptions, field: field, strict: strict).taylor)(
   var,

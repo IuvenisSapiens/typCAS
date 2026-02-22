@@ -75,7 +75,7 @@ Every non-trivial math change must include:
 
 - at least one positive regression case
 - at least one edge/failure guard case
-- compile-gate pass for unified example doc (`examples/test.typ`)
+- local compile-gate pass for unified example doc (`examples/test.typ`)
 
 ## 3) Repository Architecture Boundaries
 
@@ -253,6 +253,14 @@ Canonical local gate:
 
 ```bash
 typst compile examples/test.typ /tmp/typcas-test.pdf --root .
+```
+
+Recommended probe gate:
+
+```bash
+for probe in examples/probes/*.typ; do
+  typst compile "$probe" "/tmp/$(basename "$probe" .typ).pdf" --root .
+done
 ```
 
 Recommended focused checks when touching specific areas:

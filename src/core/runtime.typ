@@ -18,7 +18,7 @@
 #import "../assumptions.typ": assume, assume-domain, assume-string, merge-assumptions, apply-assumptions, variable-domain, display-variable-domain
 #import "../domain.typ": parse-domain, domain-to-string
 
-#import "../restrictions.typ": mk-restriction, restriction-key, merge-restrictions, collect-structural-restrictions, collect-function-restrictions, filter-restrictions-by-assumptions, propagate-variable-domains, render-restriction-note
+#import "../restrictions.typ": mk-restriction, restriction-key, merge-restrictions, collect-structural-restrictions, collect-function-restrictions, filter-restrictions-by-assumptions, propagate-variable-domains, render-restriction-note, build-restriction-panel
 
 #import "../steps.typ": step-diff, step-integrate, step-simplify, step-solve, display-steps, set-step-style, get-step-style, detail-valid, normalize-detail, detail-mode, detail-depth, resolve-detail-depth
 
